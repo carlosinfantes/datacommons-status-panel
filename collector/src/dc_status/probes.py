@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 
 from .model import (
     DEGRADED,
@@ -17,6 +18,7 @@ from .model import (
     minor_of,
     parse_image_version,
 )
+from .timestamps import parse_timestamp
 
 _RUN = "https://run.googleapis.com/v2"
 _SPANNER = "https://spanner.googleapis.com/v1"
@@ -212,4 +214,142 @@ def probe_counts(ctx, *, budget_seconds: float = 20.0, workers: int = 4) -> Prob
         status=status,
         detail=detail,
         data={"counts": counts, "unavailable": sorted(unavailable)},
+    )
+
+
+_WORKFLOWS = "https://workflowexecutions.googleapis.com/v1"
+
+_INGESTION_SQL = """
+SELECT CreationTimestamp, CompletionTimestamp, Status, Stage, IngestionFailure,
+       ExecutionTime, ARRAY_LENGTH(IngestedImports) AS Imports, WorkflowExecutionID
+FROM IngestionHistory
+ORDER BY CreationTimestamp DESC
+LIMIT 10
+""".strip()
+
+_LOCK_SQL = """
+SELECT COUNT(*) AS Total, COUNTIF(LockOwner IS NOT NULL) AS Held,
+       MIN(AcquiredTimestamp) AS OldestAcquired
+FROM IngestionLock
+""".strip()
+
+# The columns NodeCount / EdgeCount / ObservationCount / TimeSeriesCount exist on
+# IngestionHistory but are NULL in every row of both environments. Counts come
+# from probe_counts instead.
+
+
+def _workflow_executions(ctx) -> list[dict]:
+    url = (
+        f"{_WORKFLOWS}/projects/{ctx.project_id}/locations/{ctx.region}"
+        f"/workflows/{ctx.ingestion_workflow_name}/executions"
+    )
+    payload = ctx.rest.get(url, params={"pageSize": 10})
+    return payload.get("executions") or []
+
+
+def _state_by_execution_id(executions: list[dict]) -> dict[str, str]:
+    return {
+        execution.get("name", "").rsplit("/", 1)[-1]: execution.get("state", "")
+        for execution in executions
+        if execution.get("name")
+    }
+
+
+def _any_active(executions: list[dict]) -> bool:
+    return any(execution.get("state") == "ACTIVE" for execution in executions)
+
+
+def probe_ingestions(ctx) -> Probe:
+    spanner = ctx.spanner_factory()
+    try:
+        rows = spanner.query(_INGESTION_SQL, staleness_seconds=10)
+    finally:
+        spanner.close()
+
+    try:
+        executions = _workflow_executions(ctx)
+    except Exception as exc:
+        executions = []
+        workflow_detail = f"workflow executions unavailable: {exc}"
+    else:
+        workflow_detail = ""
+
+    states = _state_by_execution_id(executions)
+    ingestions = [
+        {
+            "creation": row.get("CreationTimestamp"),
+            "completion": row.get("CompletionTimestamp"),
+            "status": row.get("Status"),
+            "stage": row.get("Stage"),
+            "failure": bool(row.get("IngestionFailure")),
+            "execution_seconds": row.get("ExecutionTime"),
+            "imports": row.get("Imports"),
+            "workflow_execution_id": row.get("WorkflowExecutionID"),
+            "workflow_state": states.get(row.get("WorkflowExecutionID") or ""),
+        }
+        for row in rows
+    ]
+
+    if not ingestions:
+        return Probe(
+            id="ingestions",
+            status=UNKNOWN,
+            detail=workflow_detail or "no ingestion history yet",
+            data={"ingestions": []},
+        )
+
+    latest = ingestions[0]
+    if _any_active(executions):
+        status, detail = HEALTHY, "an ingestion is running"
+    elif latest["failure"] or (latest["status"] or "").upper() not in {"SUCCESS", "RUNNING"}:
+        status = DEGRADED
+        detail = f"the latest ingestion reported {latest['status']} at stage {latest['stage']}"
+    else:
+        status, detail = HEALTHY, ""
+    return Probe(
+        id="ingestions",
+        status=status,
+        detail=detail or workflow_detail,
+        data={"ingestions": ingestions},
+    )
+
+
+def probe_ingestion_lock(ctx, *, now: datetime | None = None, stale_after_hours: float = 2.0) -> Probe:
+    spanner = ctx.spanner_factory()
+    try:
+        rows = spanner.query(_LOCK_SQL, staleness_seconds=10)
+    finally:
+        spanner.close()
+
+    row = rows[0] if rows else {}
+    held = int(row.get("Held") or 0)
+    oldest = row.get("OldestAcquired")
+    acquired = parse_timestamp(oldest)
+    reference = now or datetime.now(timezone.utc)
+    age_minutes = int((reference - acquired).total_seconds() // 60) if acquired else None
+
+    try:
+        active = _any_active(_workflow_executions(ctx))
+    except Exception:
+        active = False
+
+    if held == 0:
+        status, detail = HEALTHY, ""
+    elif active:
+        status, detail = HEALTHY, "an ingestion is running"
+    elif age_minutes is not None and age_minutes > stale_after_hours * 60:
+        status = DEGRADED
+        detail = f"the ingestion lock has been held for {age_minutes} minutes with no active workflow"
+    else:
+        status, detail = HEALTHY, "the ingestion lock is held"
+    return Probe(
+        id="ingestion_lock",
+        status=status,
+        detail=detail,
+        data={
+            "held": held,
+            "oldest_acquired": oldest,
+            "age_minutes": age_minutes,
+            "workflow_active": active,
+        },
     )
