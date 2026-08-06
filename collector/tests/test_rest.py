@@ -43,6 +43,10 @@ def test_does_not_retry_on_403_and_raises():
         client.get("https://run.googleapis.com/v2/x")
     assert excinfo.value.status == 403
     assert "denied" in excinfo.value.message
+    # The call count is what proves "does not retry": without it this test
+    # passes even if the non-retryable guard is deleted, because an exhausted
+    # retry budget raises a RestError carrying the same status and message.
+    assert len(session.calls) == 1
 
 
 def test_gives_up_after_the_retry_budget():

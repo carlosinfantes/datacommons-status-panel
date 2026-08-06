@@ -35,7 +35,9 @@ class FakeSession:
         self.timeouts: list[float | None] = []
 
     def request(self, method, url, params=None, json=None, timeout=None):
-        self.calls.append((method, url, params or json))
+        # `params if not None else json`, not `params or json`: an empty dict is
+        # falsy, and recording None for it would misreport what was sent.
+        self.calls.append((method, url, json if params is None else params))
         self.timeouts.append(timeout)
         for fragment, response in self.routes.items():
             if fragment in url:
