@@ -7,3 +7,6 @@ __pycache__/
 .terraform/
 *.tfstate
 *.tfstate.*
+
+# Subagent-driven development scratch (never commit)
+.superpowers/
