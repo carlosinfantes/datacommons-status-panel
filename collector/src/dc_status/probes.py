@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import time
+from concurrent.futures import ThreadPoolExecutor
+
 from .model import (
+    DEGRADED,
     DOWN,
     HEALTHY,
     REQUIRED_TABLES,
@@ -139,4 +143,66 @@ def probe_version_consistency(service: Probe, schema: Probe) -> Probe:
         id="version_consistency",
         status=HEALTHY,
         data={"dcp_version": version, "missing_tables": []},
+    )
+
+
+_COUNT_TIMEOUT_SECONDS = 8.0
+
+
+def probe_counts(ctx, *, budget_seconds: float = 20.0, workers: int = 4) -> Probe:
+    started = time.monotonic()
+    schema_session = ctx.spanner_factory()
+    try:
+        tables = sorted(list_tables(schema_session) & TABLE_ALLOWLIST)
+    except Exception as exc:
+        return Probe(id="counts", status=UNKNOWN, detail=str(exc), data={"counts": {}, "unavailable": []})
+    finally:
+        schema_session.close()
+
+    if not tables:
+        return Probe(
+            id="counts",
+            status=UNKNOWN,
+            detail="no known table to count",
+            data={"counts": {}, "unavailable": []},
+        )
+
+    def count_one(table: str):
+        # `table` is guaranteed to come from TABLE_ALLOWLIST above; nothing else
+        # is ever interpolated into a statement.
+        session = ctx.spanner_factory()
+        try:
+            rows = session.query(
+                f"SELECT COUNT(*) AS Total FROM {table}",
+                staleness_seconds=10,
+                timeout=_COUNT_TIMEOUT_SECONDS,
+            )
+            return rows[0]["Total"] if rows else None
+        finally:
+            session.close()
+
+    counts: dict[str, int | None] = {}
+    unavailable: list[str] = []
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        futures = {table: pool.submit(count_one, table) for table in tables}
+        for table, future in futures.items():
+            remaining = budget_seconds - (time.monotonic() - started)
+            try:
+                counts[table] = future.result(timeout=max(0.1, remaining))
+            except Exception:
+                counts[table] = None
+                unavailable.append(table)
+
+    if unavailable and len(unavailable) == len(tables):
+        status = UNKNOWN
+    elif unavailable:
+        status = DEGRADED
+    else:
+        status = HEALTHY
+    detail = "" if not unavailable else f"could not count: {', '.join(sorted(unavailable))}"
+    return Probe(
+        id="counts",
+        status=status,
+        detail=detail,
+        data={"counts": counts, "unavailable": sorted(unavailable)},
     )
