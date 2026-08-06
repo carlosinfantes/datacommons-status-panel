@@ -46,6 +46,24 @@ iterating on the page's design without live credentials or a running
 deployment. **The Terraform module never sets this variable**; it is for local
 use only.
 
+## Building the image
+
+The collector ships as a container built via Cloud Build and pushed to Artifact
+Registry, pinned by digest — never by tag, since tags are mutable:
+
+```bash
+cd collector
+IMAGE=<REGION>-docker.pkg.dev/<PROJECT>/<REPO>/dc-status
+gcloud builds submit . --tag "$IMAGE:0.1.0" --project=<PROJECT>
+gcloud artifacts docker images describe "$IMAGE:0.1.0" \
+  --project=<PROJECT> --format="value(image_summary.digest)"
+```
+
+The resolved digest (`sha256:…`) is combined with the tag as
+`<IMAGE>:0.1.0@sha256:…` and that full reference is what gets pinned into the
+Terraform module's `image` variable. `DCS_REPLAY_FILE` (see above) is a
+development-only affordance; the Terraform module never sets it.
+
 ## Status
 
 The collector and the Terraform module are under construction.
