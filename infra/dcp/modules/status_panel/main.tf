@@ -43,7 +43,9 @@ resource "google_cloud_run_v2_service" "status" {
   deletion_protection = var.stateless_deletion_protection
 
   template {
-    service_account = google_service_account.status.email
+    service_account                  = google_service_account.status.email
+    timeout                          = "${var.request_timeout_seconds}s"
+    max_instance_request_concurrency = var.max_request_concurrency
 
     scaling {
       min_instance_count = var.min_instances

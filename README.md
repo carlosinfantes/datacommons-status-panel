@@ -63,7 +63,3 @@ The resolved digest (`sha256:…`) is combined with the tag as
 `<IMAGE>:0.1.0@sha256:…` and that full reference is what gets pinned into the
 Terraform module's `image` variable. `DCS_REPLAY_FILE` (see above) is a
 development-only affordance; the Terraform module never sets it.
-
-## Status
-
-The collector and the Terraform module are under construction.

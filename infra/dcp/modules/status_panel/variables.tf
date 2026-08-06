@@ -153,3 +153,15 @@ variable "schema_cache_ttl_seconds" {
   type        = number
   default     = 3600
 }
+
+variable "request_timeout_seconds" {
+  description = "How long a single request may run before Cloud Run terminates it."
+  type        = number
+  default     = 120
+}
+
+variable "max_request_concurrency" {
+  description = "Concurrent requests per instance. Match the server's worker/thread product."
+  type        = number
+  default     = 8
+}

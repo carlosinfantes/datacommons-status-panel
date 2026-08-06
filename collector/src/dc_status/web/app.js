@@ -179,6 +179,21 @@ function renderEnvironment(environment) {
   card.append(section("Checks", renderProbes(environment.probes || [])));
 
   const sources = environment.data_sources || [];
+  const unmatched = environment.unmatched_provenances || [];
+  const sourceRows = sources.map((source) => [
+    { text: source.prefix },
+    count(source.files),
+    { text: source.last_updated || "—", absent: !source.last_updated },
+    count(source.rows),
+  ]);
+  unmatched.forEach((entry) => {
+    sourceRows.push([
+      { text: `${entry.provenance} (no configured prefix)`, absent: true },
+      { text: "—", absent: true },
+      { text: "—", absent: true },
+      count(entry.rows),
+    ]);
+  });
   card.append(
     section(
       "Data sources",
@@ -190,12 +205,7 @@ function renderEnvironment(environment) {
           { label: "Last upload" },
           { label: "Rows served", numeric: true },
         ],
-        sources.map((source) => [
-          { text: source.prefix },
-          count(source.files),
-          { text: source.last_updated || "—", absent: !source.last_updated },
-          count(source.rows),
-        ]),
+        sourceRows,
         "No data sources configured."
       )
     )
@@ -232,8 +242,9 @@ function renderEnvironment(environment) {
 
 function renderBanner(document_) {
   const banner = window.document.getElementById("banner");
+  const environments = document_.environments || [];
   const versions = [
-    ...new Set(document_.environments.map((environment) => environment.dcp_version).filter(Boolean)),
+    ...new Set(environments.map((environment) => environment.dcp_version).filter(Boolean)),
   ];
   if (versions.length > 1) {
     banner.textContent = `Environments are running different platform versions: ${versions.join(", ")}. An image newer than its database is the failure this panel exists to catch.`;
@@ -263,14 +274,15 @@ function refreshIapSession() {
     const frame = window.document.createElement("iframe");
     frame.style.display = "none";
     frame.src = "/?gcp-iap-mode=DO_SESSION_REFRESH";
-    frame.addEventListener("load", () => {
-      frame.remove();
-      resolve();
-    });
-    window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
       frame.remove();
       window.location.reload();
     }, 5000);
+    frame.addEventListener("load", () => {
+      window.clearTimeout(timer);
+      frame.remove();
+      resolve();
+    });
     window.document.body.append(frame);
   });
 }

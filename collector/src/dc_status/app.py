@@ -35,12 +35,11 @@ def create_app(
     cache = cache or TTLCache()
 
     def _document(include_peers: bool) -> tuple[dict, bool]:
-        if replay:
-            with open(replay, encoding="utf-8") as handle:
-                document = json.load(handle)
-            return document, bool(document.get("partial"))
         try:
-            if include_peers:
+            if replay:
+                with open(replay, encoding="utf-8") as handle:
+                    document = json.load(handle)
+            elif include_peers:
                 from .peers import fetch_peer
 
                 document = collect_all_fn(config, clients, cache, fetch_peer)
@@ -54,7 +53,11 @@ def create_app(
         path = environ.get("PATH_INFO", "/")
 
         def respond(status: str, content_type: str, body: bytes, extra: dict | None = None):
-            headers = [("Content-Type", content_type), ("Content-Length", str(len(body)))]
+            headers = [
+                ("Content-Type", content_type),
+                ("Content-Length", str(len(body))),
+                ("X-Content-Type-Options", "nosniff"),
+            ]
             headers.extend((extra or {}).items())
             start_response(status, headers)
             return [body]

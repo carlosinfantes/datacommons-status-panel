@@ -41,7 +41,7 @@ def test_worst_of_nothing_is_unknown():
 
 
 def test_parses_the_version_from_a_digest_pinned_image():
-    image = "gcr.io/datcom-ci/datacommons-services:1.1.1@sha256:" + "4" * 64
+    image = "example.invalid/datacommons-services:1.1.1@sha256:" + "4" * 64
     assert parse_image_version(image) == "1.1.1"
 
 
