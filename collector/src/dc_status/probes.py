@@ -463,3 +463,53 @@ def probe_data_sources(ctx, *, max_pages: int = 5) -> Probe:
             "rows_known": not provenance_detail,
         },
     )
+
+
+# Mirrors the readiness check the platform's own MCP sidecar performs against the
+# mixer at startup: if this fails the sidecar exits and the service returns 502.
+_API_PATH = "/core/api/v2/node?nodes=country/GTM&property=->name"
+_API_EXPECTED = "Guatemala"
+
+
+def probe_dc_api(ctx) -> Probe:
+    url = f"{ctx.public_endpoint_url.rstrip('/')}{_API_PATH}"
+    try:
+        code, body = ctx.public.get_text(url)
+    except Exception as exc:
+        return Probe(id="dc_api", status=DOWN, detail=str(exc), data={"probe_url": url})
+    data = {"http_status": code, "probe_url": url}
+    if code == 502:
+        return Probe(
+            id="dc_api",
+            status=DOWN,
+            detail="502 from the endpoint: the MCP sidecar failed to start, or the Spanner schema is absent",
+            data=data,
+        )
+    if code != 200:
+        return Probe(id="dc_api", status=DOWN, detail=f"HTTP {code} from the endpoint", data=data)
+    if _API_EXPECTED not in body:
+        return Probe(
+            id="dc_api",
+            status=DEGRADED,
+            detail=f"the endpoint answered 200 but the known entity did not resolve to {_API_EXPECTED}",
+            data=data,
+        )
+    return Probe(id="dc_api", status=HEALTHY, data=data)
+
+
+def probe_frontend(ctx) -> Probe:
+    url = f"{ctx.frontend_url.rstrip('/')}/"
+    try:
+        code, _body = ctx.public.get_text(url)
+    except Exception as exc:
+        return Probe(id="frontend", status=DEGRADED, detail=str(exc), data={})
+    if code == 200:
+        return Probe(id="frontend", status=HEALTHY, data={"http_status": code})
+    if code == 404:
+        return Probe(
+            id="frontend",
+            status=DEGRADED,
+            detail="404: the frontend bucket is empty, pending the development team",
+            data={"http_status": code},
+        )
+    return Probe(id="frontend", status=DEGRADED, detail=f"HTTP {code}", data={"http_status": code})
