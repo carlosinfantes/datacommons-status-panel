@@ -98,6 +98,16 @@ def test_provenances_without_a_matching_prefix_are_surfaced_not_dropped():
     assert probe.data["unmatched_provenances"] == [{"provenance": "SOMEONE-ELSE", "rows": 99}]
 
 
+def test_an_empty_prefix_list_is_unknown_not_healthy():
+    # The Terraform default for data_source_prefixes is []. A first apply that
+    # forgets the variable must not report green about coverage it was never
+    # told to check.
+    session = FakeSession({})
+    probe = probe_data_sources(_ctx(session, [], prefixes=()))
+    assert probe.status == UNKNOWN
+    assert probe.data["sources"] == []
+
+
 def test_a_database_failure_is_not_reported_as_healthy():
     # The outage this probe would otherwise hide: GCS answers, Spanner does not,
     # and every source reports rows: None — indistinguishable from "nothing

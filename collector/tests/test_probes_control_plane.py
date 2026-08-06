@@ -19,7 +19,6 @@ def _context(session):
         spanner_database_id="db",
         datacommons_service_name="dc",
         ingestion_workflow_name="wf",
-        preprocessing_job_name="job",
         artifacts_bucket_name="bucket",
         public_endpoint_url="https://api.example",
         frontend_url="https://www.example",
@@ -86,6 +85,29 @@ def test_dc_service_is_down_when_the_terminal_condition_failed():
     probe = probe_dc_service(_context(session))
     assert probe.status == DOWN
     assert "revision failed" in probe.detail
+
+
+def test_dc_service_survives_a_broken_revision_fetch_by_using_the_template():
+    session = FakeSession(
+        {
+            "/services/dc$": FakeResponse(
+                payload={
+                    "terminalCondition": {"state": "CONDITION_SUCCEEDED"},
+                    "latestReadyRevision": REVISION,
+                    "template": {
+                        "containers": [
+                            {"image": f"gcr.io/x/datacommons-services:1.1.1@{DIGEST}",
+                             "ports": [{"containerPort": 8080}]}
+                        ]
+                    },
+                }
+            ),
+            "/revisions/dc-00042-abc$": FakeResponse(status_code=503),
+        }
+    )
+    probe = probe_dc_service(_context(session))
+    assert probe.status == HEALTHY
+    assert probe.data["dcp_version"] == "1.1.1"
 
 
 def test_spanner_is_healthy_when_both_states_are_ready():

@@ -52,7 +52,12 @@ def probe_dc_service(ctx: ProbeContext) -> Probe:
 def _live_image(ctx: ProbeContext, service: dict, revision: str) -> str | None:
     containers = []
     if revision:
-        containers = (ctx.rest.get(f"{_RUN}/{revision}").get("containers") or [])
+        try:
+            containers = ctx.rest.get(f"{_RUN}/{revision}").get("containers") or []
+        except Exception:
+            # Keep the state we already read rather than discarding the whole
+            # probe; the service template below still tells us the desired image.
+            containers = []
     if not containers:
         containers = ((service.get("template") or {}).get("containers") or [])
     if not containers:
@@ -260,7 +265,15 @@ def _any_active(executions: list[dict]) -> bool:
     return any(execution.get("state") == "ACTIVE" for execution in executions)
 
 
-def probe_ingestions(ctx) -> Probe:
+def _age_minutes(timestamp: str | None, now: datetime | None) -> int | None:
+    parsed = parse_timestamp(timestamp)
+    if parsed is None:
+        return None
+    reference = now or datetime.now(timezone.utc)
+    return int((reference - parsed).total_seconds() // 60)
+
+
+def probe_ingestions(ctx, *, now: datetime | None = None, stale_after_hours: float = 6.0) -> Probe:
     spanner = ctx.spanner_factory()
     try:
         rows = spanner.query(_INGESTION_SQL, staleness_seconds=10)
@@ -300,17 +313,41 @@ def probe_ingestions(ctx) -> Probe:
         )
 
     latest = ingestions[0]
-    if _any_active(executions):
-        status, detail = HEALTHY, "an ingestion is running"
-    elif latest["failure"] or (latest["status"] or "").upper() not in {"SUCCESS", "RUNNING"}:
+    status_text = (latest["status"] or "").upper()
+    workflow_text = (latest["workflow_state"] or "").upper()
+    terminal = status_text in {"SUCCESS", "FAILED", "CANCELLED"}
+    notes = [workflow_detail] if workflow_detail else []
+
+    if latest["failure"] or status_text in {"FAILED", "CANCELLED"}:
         status = DEGRADED
-        detail = f"the latest ingestion reported {latest['status']} at stage {latest['stage']}"
+        notes.insert(0, f"the latest ingestion reported {latest['status']} at stage {latest['stage']}")
+    elif workflow_text in {"FAILED", "CANCELLED", "CRASHED"}:
+        # The row never reached a terminal Status but its own workflow did, and it
+        # failed. Trust the workflow: a row left at RUNNING is how a crashed
+        # ingestion hides from a status check.
+        status = DEGRADED
+        notes.insert(0, f"the latest ingestion is {latest['status']} but its workflow reported {latest['workflow_state']}")
+    elif _any_active(executions):
+        status = HEALTHY
+        notes.insert(0, "an ingestion is running")
+    elif not terminal:
+        age = _age_minutes(latest["creation"], now)
+        if age is None:
+            status = UNKNOWN
+            notes.insert(0, f"the latest ingestion is {latest['status']} and its age could not be read")
+        elif age > stale_after_hours * 60:
+            status = DEGRADED
+            notes.insert(0, f"the latest ingestion has been {latest['status']} for {age} minutes with no active workflow")
+        else:
+            status = HEALTHY
+            notes.insert(0, f"an ingestion is {latest['status']}")
     else:
-        status, detail = HEALTHY, ""
+        status = HEALTHY
+
     return Probe(
         id="ingestions",
         status=status,
-        detail=detail or workflow_detail,
+        detail=" · ".join(notes),
         data={"ingestions": ingestions},
     )
 
@@ -325,9 +362,7 @@ def probe_ingestion_lock(ctx, *, now: datetime | None = None, stale_after_hours:
     row = rows[0] if rows else {}
     held = int(row.get("Held") or 0)
     oldest = row.get("OldestAcquired")
-    acquired = parse_timestamp(oldest)
-    reference = now or datetime.now(timezone.utc)
-    age_minutes = int((reference - acquired).total_seconds() // 60) if acquired else None
+    age_minutes = _age_minutes(oldest, now)
 
     workflow_detail = ""
     try:
@@ -408,6 +443,15 @@ def probe_data_sources(ctx, *, max_pages: int = 5) -> Probe:
         for row in rows
         if row.get("provenance")
     }
+
+    if not ctx.data_source_prefixes:
+        return Probe(
+            id="data_sources",
+            status=UNKNOWN,
+            detail="no data source prefixes are configured, so coverage is unknown",
+            data={"sources": [], "unmatched_provenances": [], "truncated": False,
+                  "rows_known": not provenance_detail},
+        )
 
     sources: list[dict] = []
     empty: list[str] = []
