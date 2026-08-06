@@ -10,7 +10,6 @@ MINIMAL = {
     "DCS_SPANNER_DATABASE_ID": "db",
     "DCS_DATACOMMONS_SERVICE_NAME": "dc",
     "DCS_INGESTION_WORKFLOW_NAME": "wf",
-    "DCS_PREPROCESSING_JOB_NAME": "job",
     "DCS_ARTIFACTS_BUCKET_NAME": "bucket",
     "DCS_PUBLIC_ENDPOINT_URL": "https://api.example",
     "DCS_FRONTEND_URL": "https://www.example",
@@ -56,6 +55,12 @@ def test_malformed_peer_json_is_a_config_error():
 def test_a_peer_missing_a_url_is_a_config_error():
     with pytest.raises(ConfigError):
         load_config({**MINIMAL, "DCS_PEERS": '[{"id":"prod"}]'})
+
+
+def test_a_malformed_ttl_is_a_config_error_not_a_traceback():
+    with pytest.raises(ConfigError) as excinfo:
+        load_config({**MINIMAL, "DCS_COUNTS_CACHE_TTL_SECONDS": "soon"})
+    assert "DCS_COUNTS_CACHE_TTL_SECONDS" in str(excinfo.value)
 
 
 def test_env_file_parsing_ignores_comments_and_blank_lines(tmp_path):

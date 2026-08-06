@@ -8,7 +8,7 @@ def _config():
     return EnvConfig(
         env_id="prod", env_label="Production", project_id="p", region="us-central1",
         spanner_instance_id="i", spanner_database_id="d", datacommons_service_name="dc",
-        ingestion_workflow_name="wf", preprocessing_job_name="job",
+        ingestion_workflow_name="wf",
         artifacts_bucket_name="b", public_endpoint_url="https://api.example",
         frontend_url="https://www.example", data_source_prefixes=(), input_prefix="ingestion/input/",
         peers=(), counts_cache_ttl_seconds=300, schema_cache_ttl_seconds=3600,
@@ -37,7 +37,7 @@ def _app(document=None, replay=None):
     )
 
 
-def test_healthz_answers_without_probing():
+def test_healthz_answers_200():
     captured, body = _call(_app(), "/healthz")
     assert captured["status"].startswith("200")
     assert json.loads(body) == {"status": "ok"}

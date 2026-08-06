@@ -105,11 +105,6 @@ variable "ingestion_workflow_name" {
   type        = string
 }
 
-variable "preprocessing_job_name" {
-  description = "Name of the preprocessing Cloud Run job to inspect."
-  type        = string
-}
-
 variable "artifacts_bucket_name" {
   description = "Bucket holding ingestion input and artifacts."
   type        = string

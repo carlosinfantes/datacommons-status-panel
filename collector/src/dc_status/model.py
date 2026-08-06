@@ -99,7 +99,6 @@ class ProbeContext:
     spanner_database_id: str
     datacommons_service_name: str
     ingestion_workflow_name: str
-    preprocessing_job_name: str
     artifacts_bucket_name: str
     public_endpoint_url: str
     frontend_url: str

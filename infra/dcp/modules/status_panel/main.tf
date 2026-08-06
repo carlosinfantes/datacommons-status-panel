@@ -97,10 +97,6 @@ resource "google_cloud_run_v2_service" "status" {
         value = var.ingestion_workflow_name
       }
       env {
-        name  = "DCS_PREPROCESSING_JOB_NAME"
-        value = var.preprocessing_job_name
-      }
-      env {
         name  = "DCS_ARTIFACTS_BUCKET_NAME"
         value = var.artifacts_bucket_name
       }
@@ -193,14 +189,6 @@ resource "google_cloud_run_v2_service_iam_member" "datacommons_viewer" {
   project  = var.project_id
   location = var.region
   name     = var.datacommons_service_name
-  role     = "roles/run.viewer"
-  member   = "serviceAccount:${google_service_account.status.email}"
-}
-
-resource "google_cloud_run_v2_job_iam_member" "preprocessing_viewer" {
-  project  = var.project_id
-  location = var.region
-  name     = var.preprocessing_job_name
   role     = "roles/run.viewer"
   member   = "serviceAccount:${google_service_account.status.email}"
 }
