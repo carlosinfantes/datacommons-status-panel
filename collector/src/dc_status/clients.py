@@ -1,0 +1,24 @@
+"""Wire the real clients. The only module that touches google.auth."""
+
+from __future__ import annotations
+
+from .assemble import Clients
+from .config import EnvConfig
+from .rest import PublicClient, RestClient, build_authorized_session
+from .spanner_sql import SpannerSQL
+
+
+def build_clients(config: EnvConfig) -> Clients:
+    session = build_authorized_session()
+    rest = RestClient(session)
+
+    def spanner_factory() -> SpannerSQL:
+        # A fresh session per call: probe_counts runs several in parallel.
+        return SpannerSQL(
+            RestClient(session),
+            config.project_id,
+            config.spanner_instance_id,
+            config.spanner_database_id,
+        )
+
+    return Clients(rest=rest, public=PublicClient(), spanner_factory=spanner_factory)
