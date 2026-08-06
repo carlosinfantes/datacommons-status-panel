@@ -34,6 +34,15 @@ def test_redacts_private_key_blocks():
     assert "[REDACTED]" in out
 
 
+def test_redacts_a_bare_token_that_never_says_bearer():
+    # Pins the ya29 rule as load-bearing. Without this case the generic bearer
+    # rule swallows every tested token on its own, and deleting the ya29 rule
+    # would not fail a single test.
+    out = sanitize("callback ?access=ya29.a0ARrdaM-not-a-real-token&next=/x")
+    assert "ya29" not in out
+    assert "[REDACTED]" in out
+
+
 def test_accepts_non_string_input():
     assert sanitize(ValueError("boom")) == "boom"
     assert sanitize(None) == ""

@@ -7,8 +7,9 @@ import re
 DEFAULT_LIMIT = 300
 _REDACTED = "[REDACTED]"
 
-# Order matters: the private-key block must be collapsed before the generic
-# base64 rules get a chance to nibble at its body.
+# The private-key rule is listed first so a PEM block is collapsed as one unit
+# rather than having its body chewed on by the rules below. The remaining rules
+# are independent of each other.
 _PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S),
     re.compile(r"\bya29\.[\w.\-]+"),
