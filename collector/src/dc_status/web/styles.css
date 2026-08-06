@@ -1,27 +1,496 @@
-:root {
-  color-scheme: light dark;
-  --surface: #ffffff;
-  --ink: #1a1a1a;
-  --ink-muted: #5a5a5a;
+/* Palette slots are declared once here and referenced by role everywhere else, so
+   the light/dark values swap in a single place. The categorical order is fixed and
+   never cycled: a source is always the same colour regardless of how many are on
+   screen. Status hues are never themed. */
+
+.viz-root {
+  color-scheme: light;
+
+  --surface-1: #fcfcfb;
+  --page-plane: #f9f9f7;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
+  --gridline: #e1e0d9;
+  --baseline: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+
+  /* Status. Fixed, never themed. `unknown` is deliberately NOT a status hue:
+     not knowing is not a state of the system, so it wears muted ink. */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-critical: #d03b3b;
+  --status-unknown: #898781;
+
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --surface: #16181c;
-    --ink: #f2f2f2;
-    --ink-muted: #a8a8a8;
+  :root:where(:not([data-theme="light"])) .viz-root {
+    color-scheme: dark;
+
+    --surface-1: #1a1a19;
+    --page-plane: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --gridline: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
   }
+}
+
+:root[data-theme="dark"] .viz-root {
+  color-scheme: dark;
+
+  --surface-1: #1a1a19;
+  --page-plane: #0d0d0d;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #898781;
+  --gridline: #2c2c2a;
+  --baseline: #383835;
+  --border: rgba(255, 255, 255, 0.1);
+
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  padding: 1.5rem;
-  background: var(--surface);
-  color: var(--ink);
-  font-family: system-ui, sans-serif;
+  background: var(--page-plane);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-pre {
+.viz-root {
+  background: var(--page-plane);
+  color: var(--text-primary);
+  min-height: 100vh;
+  padding: 1.5rem 1rem 3rem;
+}
+
+/* ---------- header ---------- */
+
+.page-header {
+  max-width: 78rem;
+  margin: 0 auto 1.25rem;
+}
+
+.page-header__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.generated {
+  margin: 0.4rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+
+.disclaimer {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  max-width: 46rem;
+}
+
+.button {
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+}
+
+.button:hover {
+  border-color: var(--baseline);
+}
+
+.banner {
+  max-width: 78rem;
+  margin: 0 auto 1.25rem;
+  padding: 0.6rem 0.85rem;
+  background: var(--surface-1);
+  border: 1px solid var(--status-warning);
+  border-left-width: 3px;
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+}
+
+/* ---------- cards ---------- */
+
+.environments {
+  max-width: 78rem;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 900px) {
+  .environments {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem;
+  min-width: 0;
+}
+
+.card--healthy {
+  border-top: 3px solid var(--status-good);
+}
+.card--degraded {
+  border-top: 3px solid var(--status-warning);
+}
+.card--down {
+  border-top: 3px solid var(--status-critical);
+}
+.card--unknown {
+  border-top: 3px solid var(--status-unknown);
+}
+
+.card__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+
+.card__header h2 {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 620;
+}
+
+.card__version {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+}
+
+.card__unreachable {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+
+/* ---------- status chip: colour NEVER carries the meaning alone ---------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 560;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.chip__glyph {
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.chip--healthy .chip__glyph {
+  color: var(--status-good);
+}
+.chip--degraded .chip__glyph {
+  color: var(--status-warning);
+}
+.chip--down .chip__glyph {
+  color: var(--status-critical);
+}
+.chip--unknown .chip__glyph {
+  color: var(--status-unknown);
+}
+
+/* ---------- section scaffolding ---------- */
+
+.section {
+  margin-top: 1rem;
+}
+
+.section__title {
+  margin: 0 0 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 620;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ---------- stat tiles: proportional figures, they are not a column ---------- */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.tile {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  min-width: 0;
+}
+
+.tile__label {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tile__value {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tile__value--absent {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* ---------- probe list ---------- */
+
+.probes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1px;
+  background: var(--gridline);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.probe {
+  background: var(--surface-1);
+  padding: 0.45rem 0.6rem;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.probe__name {
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  min-width: 0;
+}
+
+.probe__timing {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.probe__detail {
+  grid-column: 1 / -1;
+  margin: 0.15rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- coverage bar: stacked proportion, 2px surface gaps ---------- */
+
+.coverage {
+  display: flex;
+  height: 10px;
+  border-radius: 4px;
+  overflow: hidden;
+  gap: 2px;
+  background: var(--surface-1);
+}
+
+.coverage__segment {
+  min-width: 3px;
+}
+
+.coverage__segment[data-slot="1"] {
+  background: var(--series-1);
+}
+.coverage__segment[data-slot="2"] {
+  background: var(--series-2);
+}
+.coverage__segment[data-slot="3"] {
+  background: var(--series-3);
+}
+.coverage__segment[data-slot="4"] {
+  background: var(--series-4);
+}
+.coverage__segment[data-slot="5"] {
+  background: var(--series-5);
+}
+.coverage__segment[data-slot="6"] {
+  background: var(--series-6);
+}
+.coverage__segment[data-slot="7"] {
+  background: var(--series-7);
+}
+
+/* A legend is always present for two or more series, so identity is never
+   colour-alone. Three light-mode slots sit below 3:1 on the surface; these
+   labels plus the table below are the relief the palette requires. */
+.legend {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+}
+
+.legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.legend__swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.legend__item[data-slot="1"] .legend__swatch {
+  background: var(--series-1);
+}
+.legend__item[data-slot="2"] .legend__swatch {
+  background: var(--series-2);
+}
+.legend__item[data-slot="3"] .legend__swatch {
+  background: var(--series-3);
+}
+.legend__item[data-slot="4"] .legend__swatch {
+  background: var(--series-4);
+}
+.legend__item[data-slot="5"] .legend__swatch {
+  background: var(--series-5);
+}
+.legend__item[data-slot="6"] .legend__swatch {
+  background: var(--series-6);
+}
+.legend__item[data-slot="7"] .legend__swatch {
+  background: var(--series-7);
+}
+
+.legend__value {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- tables: scroll inside their own box, never the page ---------- */
+
+.table-wrapper {
   overflow-x: auto;
-  color: var(--ink-muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--gridline);
+}
+
+th {
+  color: var(--text-muted);
+  font-weight: 560;
+  font-size: 0.6875rem;
+  letter-spacing: 0.03em;
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+td {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+td:first-child {
+  color: var(--text-primary);
+}
+
+.numeric {
+  text-align: right;
+}
+
+.absent {
+  color: var(--text-muted);
+}
+
+.empty {
+  margin: 0;
+  padding: 0.5rem 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }

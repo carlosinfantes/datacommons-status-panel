@@ -8,8 +8,23 @@
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <h1>Platform status</h1>
-    <pre id="document">Loading…</pre>
+    <div class="viz-root">
+      <header class="page-header">
+        <div class="page-header__row">
+          <h1>Platform status</h1>
+          <button id="refresh" type="button" class="button">Refresh</button>
+        </div>
+        <p id="generated" class="generated">Loading…</p>
+        <p class="disclaimer">
+          A snapshot you look at, not an alert that finds you. Detection lives in Cloud
+          Monitoring, separately.
+        </p>
+      </header>
+
+      <div id="banner" class="banner" role="status" hidden></div>
+
+      <main id="environments" class="environments"></main>
+    </div>
     <script src="/static/app.js"></script>
   </body>
 </html>
