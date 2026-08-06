@@ -56,14 +56,16 @@ def test_collects_every_probe_and_derives_the_overall_status():
     assert {probe["id"] for probe in environment["probes"]} >= {"dc_api", "frontend"}
 
 
-def test_a_probe_that_raises_becomes_unknown_with_a_sanitized_detail():
+def test_a_probe_that_raises_becomes_unknown_without_escaping():
     probes = (_spec("dc_api", HEALTHY), _spec("counts", HEALTHY, boom=True))
     document = collect_self(_config(), _clients(), TTLCache(), now=NOW, probes=probes)
     counts = next(p for p in document["environments"][0]["probes"] if p["id"] == "counts")
     assert counts["status"] == UNKNOWN
-    assert "ya29" not in counts["detail"]
     assert document["partial"] is True
     assert document["overall"] == DEGRADED
+    # The redaction here is Probe.to_dict()'s work, not assemble's: this asserts
+    # the emitted document is clean, not that _run_one sanitised anything.
+    assert "ya29" not in counts["detail"]
 
 
 def test_version_consistency_is_derived_from_the_service_and_schema_probes():
@@ -142,3 +144,21 @@ def test_an_unreachable_peer_becomes_an_unknown_card_without_touching_the_local_
     assert remote["reachable"] is False
     assert remote["overall"] == UNKNOWN
     assert document["partial"] is True
+
+
+def test_an_unreachable_peers_detail_is_sanitized():
+    # The one place sanitisation is genuinely load-bearing in this module. A peer
+    # failure becomes a plain dict that goes straight into the document — it never
+    # passes through Probe.to_dict(), so nothing else would redact it.
+    peer = PeerConfig(id="staging", label="Staging", url="https://staging.example")
+    probes = (_spec("dc_api", HEALTHY),)
+
+    def fetch_peer(_peer_config):
+        raise RuntimeError("refused by proxy, token was Bearer ya29.leaked")
+
+    document = collect_all(
+        _config(peers=(peer,)), _clients(), TTLCache(), fetch_peer, now=NOW, probes=probes
+    )
+    remote = document["environments"][1]
+    assert "ya29" not in remote["detail"]
+    assert "[REDACTED]" in remote["detail"]
