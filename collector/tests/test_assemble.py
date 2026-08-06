@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime, timezone
 
 from dc_status.assemble import ProbeSpec, collect_all, collect_self
@@ -18,7 +19,6 @@ def _config(peers=()):
         spanner_database_id="db",
         datacommons_service_name="dc",
         ingestion_workflow_name="wf",
-        preprocessing_job_name="job",
         artifacts_bucket_name="bucket",
         public_endpoint_url="https://api.example",
         frontend_url="https://www.example",
@@ -139,6 +139,58 @@ def test_an_unreachable_peer_becomes_an_unknown_card_without_touching_the_local_
     document = collect_all(
         _config(peers=(peer,)), _clients(), TTLCache(), fetch_peer, now=NOW, probes=probes
     )
+    local, remote = document["environments"]
+    assert local["overall"] == HEALTHY
+    assert remote["reachable"] is False
+    assert remote["overall"] == UNKNOWN
+    assert document["partial"] is True
+
+
+def test_a_peer_that_answers_without_an_overall_does_not_blank_the_page():
+    # A peer that is itself degraded returns 200 with environments: [] — valid by
+    # this system's own contract. The local card must survive it.
+    peer = PeerConfig(id="staging", label="Staging", url="https://staging.example")
+    probes = (_spec("dc_api", HEALTHY),)
+
+    document = collect_all(
+        _config(peers=(peer,)),
+        _clients(),
+        TTLCache(),
+        lambda _peer: {"overall": "unknown", "partial": True, "environments": []},
+        now=NOW,
+        probes=probes,
+    )
+    local, remote = document["environments"]
+    assert local["overall"] == HEALTHY
+    assert local["probes"]
+    assert remote["overall"] == UNKNOWN
+
+
+def test_a_peer_that_outlasts_the_budget_does_not_hold_up_the_probe():
+    # Same shape as probe_counts's budget test: the fake blocks until the test
+    # releases it, exercising the real future.result(timeout=...) path and the
+    # shutdown(wait=False) that keeps a straggler from stalling the page.
+    peer = PeerConfig(id="staging", label="Staging", url="https://staging.example")
+    probes = (_spec("dc_api", HEALTHY),)
+    release = threading.Event()
+
+    def fetch_peer(_peer_config):
+        release.wait(timeout=5)
+        return {"environments": [{"overall": HEALTHY}]}
+
+    try:
+        document = collect_all(
+            _config(peers=(peer,)),
+            _clients(),
+            TTLCache(),
+            fetch_peer,
+            now=NOW,
+            probes=probes,
+            peer_deadline_seconds=0.2,
+        )
+    finally:
+        release.set()  # let the straggler finish before the test process exits
+
     local, remote = document["environments"]
     assert local["overall"] == HEALTHY
     assert remote["reachable"] is False

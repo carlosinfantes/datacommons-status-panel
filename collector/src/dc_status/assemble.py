@@ -25,6 +25,7 @@ from .probes import (
 from .sanitize import sanitize
 
 _PROBE_DEADLINE_SECONDS = 25.0
+_PEER_DEADLINE_SECONDS = 20.0
 
 
 @dataclass(frozen=True)
@@ -67,7 +68,6 @@ def _context(config: EnvConfig, clients: Clients) -> ProbeContext:
         spanner_database_id=config.spanner_database_id,
         datacommons_service_name=config.datacommons_service_name,
         ingestion_workflow_name=config.ingestion_workflow_name,
-        preprocessing_job_name=config.preprocessing_job_name,
         artifacts_bucket_name=config.artifacts_bucket_name,
         public_endpoint_url=config.public_endpoint_url,
         frontend_url=config.frontend_url,
@@ -174,9 +174,27 @@ def _wrap(environments: list[dict], *, now: datetime | None, partial: bool) -> d
     stamp = (now or datetime.now(timezone.utc)).isoformat()
     return {
         "generated_at": stamp,
-        "overall": worst(environment["overall"] for environment in environments),
+        "overall": worst(environment.get("overall", UNKNOWN) for environment in environments),
         "partial": partial,
         "environments": environments,
+    }
+
+
+def _unreachable_peer(peer: PeerConfig, exc: Exception) -> dict:
+    return {
+        "id": peer.id,
+        "label": peer.label,
+        "self": False,
+        "reachable": False,
+        "overall": UNKNOWN,
+        "detail": sanitize(exc),
+        "dcp_version": None,
+        "schema_tables": [],
+        "counts": {},
+        "ingestions": [],
+        "data_sources": [],
+        "unmatched_provenances": [],
+        "probes": [],
     }
 
 
@@ -188,35 +206,44 @@ def collect_all(
     *,
     now: datetime | None = None,
     probes: tuple[ProbeSpec, ...] = PROBES,
+    peer_deadline_seconds: float = _PEER_DEADLINE_SECONDS,
 ) -> dict:
     local = collect_self(config, clients, cache, now=now, probes=probes)
     environments = list(local["environments"])
     partial = bool(local["partial"])
-    for peer in config.peers:
+
+    remote_by_id: dict[str, dict] = {}
+    if config.peers:
+        started = time.monotonic()
+        pool = ThreadPoolExecutor(max_workers=max(1, len(config.peers)))
         try:
-            payload = fetch_peer(peer)
-            remote = (payload.get("environments") or [{}])[0]
-            remote = dict(remote)
-            remote.setdefault("id", peer.id)
-            remote.setdefault("label", peer.label)
-            remote["self"] = False
-            remote["reachable"] = True
-        except Exception as exc:
-            partial = True
-            remote = {
-                "id": peer.id,
-                "label": peer.label,
-                "self": False,
-                "reachable": False,
-                "overall": UNKNOWN,
-                "detail": sanitize(exc),
-                "dcp_version": None,
-                "schema_tables": [],
-                "counts": {},
-                "ingestions": [],
-                "data_sources": [],
-                "unmatched_provenances": [],
-                "probes": [],
-            }
-        environments.append(remote)
+            futures = {peer.id: pool.submit(fetch_peer, peer) for peer in config.peers}
+            for peer in config.peers:
+                remaining = peer_deadline_seconds - (time.monotonic() - started)
+                try:
+                    payload = futures[peer.id].result(timeout=max(0.1, remaining))
+                    remote = (payload.get("environments") or [{}])[0]
+                    if not isinstance(remote, dict):
+                        # A well-formed-but-degraded peer can legitimately answer
+                        # 200 with environments: []. Falling back to {} above is
+                        # fine; anything else in that slot is not, and must be
+                        # treated as a failure rather than crash the aggregation.
+                        raise TypeError("peer environment payload was not an object")
+                    remote = dict(remote)
+                    remote.setdefault("id", peer.id)
+                    remote.setdefault("label", peer.label)
+                    remote.setdefault("overall", UNKNOWN)
+                    remote["self"] = False
+                    remote["reachable"] = True
+                except Exception as exc:
+                    partial = True
+                    remote = _unreachable_peer(peer, exc)
+                remote_by_id[peer.id] = remote
+        finally:
+            # NOT a `with` block, for the same reason as collect_self: __exit__
+            # calls shutdown(wait=True), which would wait for a peer fetch the
+            # deadline just gave up on.
+            pool.shutdown(wait=False, cancel_futures=True)
+
+    environments.extend(remote_by_id[peer.id] for peer in config.peers)
     return _wrap(environments, now=now, partial=partial)
