@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -471,6 +472,23 @@ _API_PATH = "/core/api/v2/node?nodes=country/GTM&property=->name"
 _API_EXPECTED = "Guatemala"
 
 
+def _resolved(body: str) -> bool:
+    """True only when the query actually resolved the entity.
+
+    A bare `_API_EXPECTED in body` would accept an error payload that merely
+    mentions the name, or an HTML proxy page. Requiring valid JSON with the value
+    inside its `data` branch rules both out, without hard-coding a response shape
+    that changes between platform versions.
+    """
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    return _API_EXPECTED in json.dumps(payload.get("data") or {})
+
+
 def probe_dc_api(ctx) -> Probe:
     url = f"{ctx.public_endpoint_url.rstrip('/')}{_API_PATH}"
     try:
@@ -487,7 +505,7 @@ def probe_dc_api(ctx) -> Probe:
         )
     if code != 200:
         return Probe(id="dc_api", status=DOWN, detail=f"HTTP {code} from the endpoint", data=data)
-    if _API_EXPECTED not in body:
+    if not _resolved(body):
         return Probe(
             id="dc_api",
             status=DEGRADED,

@@ -61,6 +61,30 @@ def test_dc_api_network_failure_is_down_and_the_emitted_detail_is_sanitized():
     assert "[REDACTED]" in emitted
 
 
+def test_dc_api_rejects_an_error_body_that_merely_mentions_the_value():
+    # A substring check over the whole body would call this healthy.
+    probe = probe_dc_api(_ctx(FakePublic((200, '{"error": "no name found for Guatemala"}'))))
+    assert probe.status == DEGRADED
+
+
+def test_dc_api_rejects_a_body_that_is_not_json():
+    # What a proxy or an error page in front of the endpoint would return.
+    probe = probe_dc_api(_ctx(FakePublic((200, "<html>Guatemala</html>"))))
+    assert probe.status == DEGRADED
+
+
+def test_frontend_network_failure_degrades():
+    probe = probe_frontend(_ctx(FakePublic(RuntimeError("connection refused"))))
+    assert probe.status == DEGRADED
+    assert "connection refused" in probe.to_dict()["detail"]
+
+
+def test_frontend_other_error_codes_degrade():
+    probe = probe_frontend(_ctx(FakePublic((503, "Service Unavailable"))))
+    assert probe.status == DEGRADED
+    assert "503" in probe.detail
+
+
 def test_frontend_200_is_healthy():
     assert probe_frontend(_ctx(FakePublic((200, "<html></html>")))).status == HEALTHY
 
