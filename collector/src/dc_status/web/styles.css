@@ -1,0 +1,27 @@
+:root {
+  color-scheme: light dark;
+  --surface: #ffffff;
+  --ink: #1a1a1a;
+  --ink-muted: #5a5a5a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #16181c;
+    --ink: #f2f2f2;
+    --ink-muted: #a8a8a8;
+  }
+}
+
+body {
+  margin: 0;
+  padding: 1.5rem;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: system-ui, sans-serif;
+}
+
+pre {
+  overflow-x: auto;
+  color: var(--ink-muted);
+}

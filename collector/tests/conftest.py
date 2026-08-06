@@ -44,6 +44,7 @@ class FakeSession:
         self.routes = routes or {}
         self.calls: list[tuple[str, str, object]] = []
         self.timeouts: list[float | None] = []
+        self.headers: dict = {}
 
     def request(self, method, url, params=None, json=None, timeout=None):
         # `params if not None else json`, not `params or json`: an empty dict is

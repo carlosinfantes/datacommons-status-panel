@@ -29,7 +29,22 @@ The panel runs ten probes against a deployment:
 cd collector
 uv sync
 uv run pytest
+cp local.env.example local.env   # fill in your own project, then edit
+uv run python -m dc_status.cli --env-file local.env
 ```
+
+The WSGI app (`dc_status.app`) serves the same document over HTTP: `/healthz`,
+`/api/v1/self`, `/api/v1/all`, and the static page at `/`. Peers are fetched
+server-to-server with an ID token minted for the peer's own URL as audience,
+so the page never has to deal with CORS.
+
+### Replaying a saved document
+
+Setting `DCS_REPLAY_FILE` to a JSON file makes the `/api/v1/*` routes serve that
+file's contents instead of probing anything — a development affordance for
+iterating on the page's design without live credentials or a running
+deployment. **The Terraform module never sets this variable**; it is for local
+use only.
 
 ## Status
 
