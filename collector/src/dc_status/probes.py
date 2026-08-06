@@ -362,3 +362,87 @@ def probe_ingestion_lock(ctx, *, now: datetime | None = None, stale_after_hours:
             "workflow_state_known": not workflow_detail,
         },
     )
+
+
+_STORAGE = "https://storage.googleapis.com/storage/v1"
+
+_PROVENANCE_SQL = "SELECT provenance, COUNT(*) AS Rows FROM TimeSeries GROUP BY provenance"
+
+
+def _list_objects(ctx, prefix: str, max_pages: int) -> tuple[list[dict], bool]:
+    items: list[dict] = []
+    token: str | None = None
+    for page in range(max_pages):
+        params = {
+            "prefix": prefix,
+            "maxResults": 1000,
+            "fields": "items(name,size,updated),nextPageToken",
+        }
+        if token:
+            params["pageToken"] = token
+        payload = ctx.rest.get(f"{_STORAGE}/b/{ctx.artifacts_bucket_name}/o", params=params)
+        items.extend(payload.get("items") or [])
+        token = payload.get("nextPageToken")
+        if not token:
+            return items, False
+    return items, True  # page cap reached: say so rather than silently truncating
+
+
+def probe_data_sources(ctx, *, max_pages: int = 5) -> Probe:
+    try:
+        spanner = ctx.spanner_factory()
+        try:
+            rows = spanner.query(_PROVENANCE_SQL, staleness_seconds=10)
+        finally:
+            spanner.close()
+    except Exception:
+        rows = []
+    by_provenance = {
+        str(row.get("provenance") or "").upper(): row.get("Rows")
+        for row in rows
+        if row.get("provenance")
+    }
+
+    sources: list[dict] = []
+    empty: list[str] = []
+    truncated = False
+    matched: set[str] = set()
+    for prefix in ctx.data_source_prefixes:
+        full_prefix = f"{ctx.input_prefix}{prefix}/"
+        items, hit_cap = _list_objects(ctx, full_prefix, max_pages)
+        truncated = truncated or hit_cap
+        key = prefix.upper()
+        if key in by_provenance:
+            matched.add(key)
+        updates = [item.get("updated") for item in items if item.get("updated")]
+        sources.append(
+            {
+                "prefix": prefix,
+                "files": len(items),
+                "bytes": sum(int(item.get("size") or 0) for item in items),
+                "last_updated": max(updates) if updates else None,
+                "rows": by_provenance.get(key),
+            }
+        )
+        if not items:
+            empty.append(prefix)
+
+    unmatched = [
+        {"provenance": provenance, "rows": count}
+        for provenance, count in sorted(by_provenance.items())
+        if provenance not in matched
+    ]
+
+    if empty:
+        status = DEGRADED
+        detail = f"no input files under: {', '.join(empty)}"
+    else:
+        status, detail = HEALTHY, ""
+    if truncated:
+        detail = (detail + " · object listing hit the page cap").strip(" ·")
+    return Probe(
+        id="data_sources",
+        status=status,
+        detail=detail,
+        data={"sources": sources, "unmatched_provenances": unmatched, "truncated": truncated},
+    )
