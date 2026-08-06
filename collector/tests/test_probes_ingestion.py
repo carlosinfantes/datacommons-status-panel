@@ -115,9 +115,15 @@ def test_no_history_is_unknown():
 
 def test_a_free_lock_row_with_null_owner_is_healthy():
     rows = [{"Total": 1, "Held": 0, "OldestAcquired": None}]
-    probe = probe_ingestion_lock(_ctx(FakeSpanner(rows), _executions("SUCCEEDED")), now=NOW)
+    spanner = FakeSpanner(rows)
+    probe = probe_ingestion_lock(_ctx(spanner, _executions("SUCCEEDED")), now=NOW)
     assert probe.status == HEALTHY
     assert probe.data["held"] == 0
+    # The fake returns canned rows without executing SQL, so no behavioural
+    # assertion here can catch the one regression that matters: swapping
+    # COUNTIF(LockOwner IS NOT NULL) for COUNT(*) would count the permanent
+    # free-lock row as held and paint the panel amber forever. Pin the literal.
+    assert "COUNTIF(LockOwner IS NOT NULL)" in spanner.queries[0]
 
 
 def test_a_recently_held_lock_is_healthy():
@@ -146,3 +152,14 @@ def test_an_old_lock_with_an_active_workflow_stays_healthy():
     probe = probe_ingestion_lock(_ctx(FakeSpanner(rows), _executions("ACTIVE")), now=NOW)
     assert probe.status == HEALTHY
     assert probe.data["workflow_active"] is True
+
+
+def test_an_old_lock_does_not_claim_the_workflow_is_idle_when_it_could_not_ask():
+    acquired = (NOW - timedelta(hours=5)).isoformat().replace("+00:00", "Z")
+    rows = [{"Total": 1, "Held": 1, "OldestAcquired": acquired}]
+    session = FakeSession({"/executions": FakeResponse(status_code=503)})
+    probe = probe_ingestion_lock(_ctx(FakeSpanner(rows), session), now=NOW)
+    assert probe.status == DEGRADED
+    assert "no workflow is active" not in probe.detail
+    assert "workflow state unavailable" in probe.detail
+    assert probe.data["workflow_state_known"] is False

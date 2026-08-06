@@ -328,10 +328,12 @@ def probe_ingestion_lock(ctx, *, now: datetime | None = None, stale_after_hours:
     reference = now or datetime.now(timezone.utc)
     age_minutes = int((reference - acquired).total_seconds() // 60) if acquired else None
 
+    workflow_detail = ""
     try:
         active = _any_active(_workflow_executions(ctx))
-    except Exception:
+    except Exception as exc:
         active = False
+        workflow_detail = f"workflow state unavailable: {exc}"
 
     if held == 0:
         status, detail = HEALTHY, ""
@@ -339,7 +341,13 @@ def probe_ingestion_lock(ctx, *, now: datetime | None = None, stale_after_hours:
         status, detail = HEALTHY, "an ingestion is running"
     elif age_minutes is not None and age_minutes > stale_after_hours * 60:
         status = DEGRADED
-        detail = f"the ingestion lock has been held for {age_minutes} minutes with no active workflow"
+        # Never claim "no workflow is active" when the API could not be asked:
+        # that turns not knowing into a diagnosis, inside the status that raises
+        # the alarm.
+        detail = (
+            f"the ingestion lock has been held for {age_minutes} minutes and "
+            + (workflow_detail or "no workflow is active")
+        )
     else:
         status, detail = HEALTHY, "the ingestion lock is held"
     return Probe(
@@ -351,5 +359,6 @@ def probe_ingestion_lock(ctx, *, now: datetime | None = None, stale_after_hours:
             "oldest_acquired": oldest,
             "age_minutes": age_minutes,
             "workflow_active": active,
+            "workflow_state_known": not workflow_detail,
         },
     )
