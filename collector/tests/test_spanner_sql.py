@@ -17,10 +17,13 @@ def _sql_response(fields, rows):
 
 
 def _client(sql_response):
+    # End-anchored fragments: the executeSql URL ends in ":executeSql" but also
+    # *contains* "/sessions", so a plain substring route would serve the
+    # session-creation payload to every query.
     session = FakeSession(
         {
-            "/sessions": FakeResponse(payload={"name": SESSION_NAME}),
-            ":executeSql": sql_response,
+            "/sessions$": FakeResponse(payload={"name": SESSION_NAME}),
+            ":executeSql$": sql_response,
         }
     )
     return session, SpannerSQL(RestClient(session), "p", "i", "d")
@@ -84,7 +87,7 @@ def test_zero_staleness_requests_a_strong_read():
 def test_recreates_the_session_once_when_it_expired():
     responses = [FakeResponse(status_code=404), _sql_response([("n", "INT64")], [["1"]])]
     session = FakeSession(
-        {"/sessions": FakeResponse(payload={"name": SESSION_NAME}), ":executeSql": responses}
+        {"/sessions$": FakeResponse(payload={"name": SESSION_NAME}), ":executeSql$": responses}
     )
     spanner = SpannerSQL(RestClient(session, retries=0, sleep=lambda _s: None), "p", "i", "d")
     assert spanner.query("SELECT 1 AS n") == [{"n": 1}]
@@ -93,7 +96,7 @@ def test_recreates_the_session_once_when_it_expired():
 
 def test_propagates_a_permission_error():
     session = FakeSession(
-        {"/sessions": FakeResponse(status_code=403, payload={"error": {"message": "no access"}})}
+        {"/sessions$": FakeResponse(status_code=403, payload={"error": {"message": "no access"}})}
     )
     spanner = SpannerSQL(RestClient(session, retries=0), "p", "i", "d")
     with pytest.raises(RestError):
