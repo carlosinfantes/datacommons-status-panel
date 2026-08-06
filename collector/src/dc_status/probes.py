@@ -183,7 +183,8 @@ def probe_counts(ctx, *, budget_seconds: float = 20.0, workers: int = 4) -> Prob
 
     counts: dict[str, int | None] = {}
     unavailable: list[str] = []
-    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+    pool = ThreadPoolExecutor(max_workers=max(1, workers))
+    try:
         futures = {table: pool.submit(count_one, table) for table in tables}
         for table, future in futures.items():
             remaining = budget_seconds - (time.monotonic() - started)
@@ -192,6 +193,12 @@ def probe_counts(ctx, *, budget_seconds: float = 20.0, workers: int = 4) -> Prob
             except Exception:
                 counts[table] = None
                 unavailable.append(table)
+    finally:
+        # NOT a `with` block: its __exit__ calls shutdown(wait=True), which waits
+        # for the very workers the budget just gave up on, so the budget would
+        # bound nothing. A straggler finishes in the background and closes its
+        # own session in count_one's finally; it must not hold up the page.
+        pool.shutdown(wait=False, cancel_futures=True)
 
     if unavailable and len(unavailable) == len(tables):
         status = UNKNOWN
