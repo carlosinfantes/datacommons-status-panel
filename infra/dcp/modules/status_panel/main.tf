@@ -8,10 +8,19 @@ locals {
   # is derived from the project number instead.
   iap_agent = "serviceAccount:service-${data.google_project.this.number}@gcp-sa-iap.iam.gserviceaccount.com"
 
+  # Project scope is forced, not chosen: the google provider has no
+  # google_workflows_workflow_iam_member resource (checked against 7.38.0, which
+  # ships only google_workflows_workflow), so per-workflow IAM cannot be
+  # expressed. Every other dependency below IS resource-scoped. The sibling
+  # deployment repo documents the same limitation in its own iam.tf.
   project_roles = [
     "roles/workflows.viewer",
   ]
 
+  # With enable_iap = false and invoker_members left empty, nothing can invoke the
+  # service. That is deliberate — it fails closed rather than open, and allUsers is
+  # never granted — but an operator turning IAP off must populate invoker_members
+  # or the panel becomes unreachable.
   invokers = var.enable_iap ? concat([local.iap_agent], var.invoker_members) : var.invoker_members
 }
 
