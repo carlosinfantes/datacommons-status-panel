@@ -1,4 +1,4 @@
-from dc_status.model import DEGRADED, HEALTHY
+from dc_status.model import DEGRADED, HEALTHY, UNKNOWN
 from dc_status.probes import probe_data_sources
 from dc_status.rest import RestClient
 from tests.conftest import FakeResponse, FakeSession
@@ -96,6 +96,33 @@ def test_provenances_without_a_matching_prefix_are_surfaced_not_dropped():
     rows = [{"provenance": "AGENCY-A", "Rows": 1}, {"provenance": "SOMEONE-ELSE", "Rows": 99}]
     probe = probe_data_sources(_ctx(session, rows, prefixes=("agency-a",)))
     assert probe.data["unmatched_provenances"] == [{"provenance": "SOMEONE-ELSE", "rows": 99}]
+
+
+def test_a_database_failure_is_not_reported_as_healthy():
+    # The outage this probe would otherwise hide: GCS answers, Spanner does not,
+    # and every source reports rows: None — indistinguishable from "nothing
+    # matched" unless the failure is surfaced.
+    class ExplodingSpanner:
+        def query(self, sql, **kwargs):
+            raise RuntimeError("permission denied")
+
+        def close(self):
+            pass
+
+    session = FakeSession(
+        {
+            "prefix=ingestion/input/agency-a/": _listing(
+                [{"name": "ingestion/input/agency-a/a.csv", "size": "1",
+                  "updated": "2026-08-01T10:00:00Z"}]
+            )
+        }
+    )
+    ctx = _ctx(session, [], prefixes=("agency-a",))
+    ctx.spanner_factory = lambda: ExplodingSpanner()
+    probe = probe_data_sources(ctx)
+    assert probe.status == UNKNOWN
+    assert "rows served per source unavailable" in probe.detail
+    assert probe.data["rows_known"] is False
 
 
 def test_follows_pagination_and_flags_truncation_at_the_page_cap():

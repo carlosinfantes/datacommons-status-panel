@@ -389,14 +389,19 @@ def _list_objects(ctx, prefix: str, max_pages: int) -> tuple[list[dict], bool]:
 
 
 def probe_data_sources(ctx, *, max_pages: int = 5) -> Probe:
+    provenance_detail = ""
     try:
         spanner = ctx.spanner_factory()
         try:
             rows = spanner.query(_PROVENANCE_SQL, staleness_seconds=10)
         finally:
             spanner.close()
-    except Exception:
+    except Exception as exc:
+        # A database failure must not look like "nothing matched". Without this
+        # every source would report rows: None and the probe would stay green
+        # through a full outage — the one state this panel exists to catch.
         rows = []
+        provenance_detail = f"rows served per source unavailable: {exc}"
     by_provenance = {
         str(row.get("provenance") or "").upper(): row.get("Rows")
         for row in rows
@@ -433,16 +438,28 @@ def probe_data_sources(ctx, *, max_pages: int = 5) -> Probe:
         if provenance not in matched
     ]
 
+    parts = []
     if empty:
-        status = DEGRADED
-        detail = f"no input files under: {', '.join(empty)}"
-    else:
-        status, detail = HEALTHY, ""
+        parts.append(f"no input files under: {', '.join(empty)}")
+    if provenance_detail:
+        parts.append(provenance_detail)
     if truncated:
-        detail = (detail + " · object listing hit the page cap").strip(" ·")
+        parts.append("object listing hit the page cap")
+
+    if empty:
+        status = DEGRADED  # a named, verified gap
+    elif provenance_detail:
+        status = UNKNOWN  # not knowing, which aggregates as degraded, not as down
+    else:
+        status = HEALTHY
     return Probe(
         id="data_sources",
         status=status,
-        detail=detail,
-        data={"sources": sources, "unmatched_provenances": unmatched, "truncated": truncated},
+        detail=" · ".join(parts),
+        data={
+            "sources": sources,
+            "unmatched_provenances": unmatched,
+            "truncated": truncated,
+            "rows_known": not provenance_detail,
+        },
     )
