@@ -2,7 +2,17 @@
 
 from __future__ import annotations
 
-from .model import DOWN, HEALTHY, Probe, ProbeContext, parse_image_version
+from .model import (
+    DOWN,
+    HEALTHY,
+    REQUIRED_TABLES,
+    TABLE_ALLOWLIST,
+    UNKNOWN,
+    Probe,
+    ProbeContext,
+    minor_of,
+    parse_image_version,
+)
 
 _RUN = "https://run.googleapis.com/v2"
 _SPANNER = "https://spanner.googleapis.com/v1"
@@ -67,4 +77,66 @@ def probe_spanner(ctx: ProbeContext) -> Probe:
             "version_retention_period": database.get("versionRetentionPeriod"),
             "earliest_version_time": database.get("earliestVersionTime"),
         },
+    )
+
+
+_SCHEMA_SQL = "SELECT table_name FROM information_schema.tables WHERE table_schema = ''"
+
+
+def list_tables(spanner) -> set[str]:
+    """Every user table in the database. Read strongly: schema, not data."""
+    rows = spanner.query(_SCHEMA_SQL, staleness_seconds=0)
+    return {row["table_name"] for row in rows if row.get("table_name")}
+
+
+def probe_schema(ctx) -> Probe:
+    spanner = ctx.spanner_factory()
+    try:
+        found = list_tables(spanner)
+    finally:
+        spanner.close()
+    known = sorted(found & TABLE_ALLOWLIST)
+    unlisted = sorted(found - TABLE_ALLOWLIST)
+    return Probe(
+        id="schema",
+        status=HEALTHY if known else DOWN,
+        detail="" if known else "no known platform table is present in the database",
+        data={"tables": known, "unlisted_tables": unlisted},
+    )
+
+
+def probe_version_consistency(service: Probe, schema: Probe) -> Probe:
+    """Pure: cross the live image version with the tables that actually exist."""
+    version = (service.data or {}).get("dcp_version")
+    tables = set((schema.data or {}).get("tables") or [])
+    minor = minor_of(version)
+    if not tables:
+        return Probe(
+            id="version_consistency",
+            status=UNKNOWN,
+            detail="the schema could not be read, so consistency cannot be judged",
+            data={"dcp_version": version, "missing_tables": []},
+        )
+    if minor is None or minor not in REQUIRED_TABLES:
+        return Probe(
+            id="version_consistency",
+            status=UNKNOWN,
+            detail=f"unrecognised platform version: {version!r}",
+            data={"dcp_version": version, "missing_tables": []},
+        )
+    missing = sorted(REQUIRED_TABLES[minor] - tables)
+    if missing:
+        return Probe(
+            id="version_consistency",
+            status=DOWN,
+            detail=(
+                f"the running image is {version} but the database is missing the tables "
+                f"that version serves from: {', '.join(missing)}"
+            ),
+            data={"dcp_version": version, "missing_tables": missing},
+        )
+    return Probe(
+        id="version_consistency",
+        status=HEALTHY,
+        data={"dcp_version": version, "missing_tables": []},
     )
