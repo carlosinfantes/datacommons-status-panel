@@ -39,9 +39,13 @@ class FakeSession:
         # falsy, and recording None for it would misreport what was sent.
         self.calls.append((method, url, json if params is None else params))
         self.timeouts.append(timeout)
-        for fragment, response in self.routes.items():
-            if fragment in url:
-                if isinstance(response, list):
-                    return response.pop(0) if len(response) > 1 else response[0]
-                return response
-        raise AssertionError(f"unexpected URL in test: {url}")
+        # Find all matching fragments, prefer the longest (most specific) match
+        matches = [(fragment, response) for fragment, response in self.routes.items() if fragment in url]
+        if not matches:
+            raise AssertionError(f"unexpected URL in test: {url}")
+        # Sort by fragment length descending to prefer longer/more specific matches
+        matches.sort(key=lambda x: len(x[0]), reverse=True)
+        fragment, response = matches[0]
+        if isinstance(response, list):
+            return response.pop(0) if len(response) > 1 else response[0]
+        return response
