@@ -36,10 +36,10 @@ def _ctx(tables, counts, failing=()):
 
 
 def test_counts_every_present_table():
-    ctx = _ctx(["Node", "Edge"], {"Node": 59407, "Edge": 456138})
+    ctx = _ctx(["Node", "Edge"], {"Node": 41, "Edge": 87})
     probe = probe_counts(ctx)
     assert probe.status == HEALTHY
-    assert probe.data["counts"] == {"Edge": 456138, "Node": 59407}
+    assert probe.data["counts"] == {"Edge": 87, "Node": 41}
     assert probe.data["unavailable"] == []
 
 

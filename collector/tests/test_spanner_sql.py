@@ -45,8 +45,8 @@ def test_reuses_the_session_across_queries():
 
 
 def test_decodes_int64_to_int():
-    _, spanner = _client(_sql_response([("Total", "INT64")], [["10419160"]]))
-    assert spanner.query("SELECT COUNT(*) AS Total FROM Observation") == [{"Total": 10419160}]
+    _, spanner = _client(_sql_response([("Total", "INT64")], [["1234567"]]))
+    assert spanner.query("SELECT COUNT(*) AS Total FROM Observation") == [{"Total": 1234567}]
 
 
 def test_decodes_bool_and_keeps_timestamps_as_strings():
