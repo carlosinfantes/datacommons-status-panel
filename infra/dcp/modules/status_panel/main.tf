@@ -27,8 +27,14 @@ locals {
   # ships only google_workflows_workflow), so per-workflow IAM cannot be
   # expressed. Every other dependency below IS resource-scoped. The sibling
   # deployment repo documents the same limitation in its own iam.tf.
+  #
+  # roles/monitoring.viewer is project-scoped by nature: Cloud Monitoring has no
+  # IAM below the project (no per-service or per-metric grants), so reading the
+  # Cloud Run and Spanner time series behind the golden signals can only be
+  # granted here. It is read-only and gives no access to the data itself.
   project_roles = [
     "roles/workflows.viewer",
+    "roles/monitoring.viewer",
   ]
 }
 
@@ -133,6 +139,57 @@ resource "google_cloud_run_v2_service" "status" {
       env {
         name  = "DCS_SCHEMA_CACHE_TTL_SECONDS"
         value = tostring(var.schema_cache_ttl_seconds)
+      }
+      env {
+        name  = "DCS_CANARY_NODE"
+        value = var.canary.node
+      }
+      env {
+        name  = "DCS_CANARY_NAME"
+        value = var.canary.name
+      }
+      env {
+        name  = "DCS_SIGNALS_WINDOW_MINUTES"
+        value = tostring(var.signals_window_minutes)
+      }
+
+      # Targets travel inside the document, so what the page draws is what the
+      # collector judged against.
+      env {
+        name  = "DCS_TARGET_AVAILABILITY_PCT"
+        value = tostring(var.targets.availability_pct)
+      }
+      env {
+        name  = "DCS_TARGET_LATENCY_P95_MS"
+        value = tostring(var.targets.latency_p95_ms)
+      }
+      env {
+        name  = "DCS_TARGET_RUN_CPU_PCT"
+        value = tostring(var.targets.run_cpu_pct)
+      }
+      env {
+        name  = "DCS_TARGET_RUN_MEMORY_PCT"
+        value = tostring(var.targets.run_memory_pct)
+      }
+      env {
+        name  = "DCS_TARGET_SPANNER_CPU_PCT"
+        value = tostring(var.targets.spanner_cpu_pct)
+      }
+      env {
+        name  = "DCS_TARGET_MIN_REQUESTS_PER_HOUR"
+        value = tostring(var.targets.min_requests_per_hour)
+      }
+      # Absent rather than empty when null: the age is then shown but not judged.
+      dynamic "env" {
+        for_each = var.targets.ingestion_max_age_hours == null ? [] : [var.targets.ingestion_max_age_hours]
+        content {
+          name  = "DCS_TARGET_INGESTION_MAX_AGE_HOURS"
+          value = tostring(env.value)
+        }
+      }
+      env {
+        name  = "DCS_TARGET_MAX_ROW_DROP_PCT"
+        value = tostring(var.targets.max_row_drop_pct)
       }
 
       # Defence in depth: IAP and the invoker binding are the control, these make

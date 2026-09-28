@@ -206,3 +206,75 @@ variable "max_request_concurrency" {
   type        = number
   default     = 8
 }
+
+variable "targets" {
+  description = <<-EOT
+    Targets the collector judges against. They travel inside the document, so the
+    page draws the same target the backend judged with. Unset fields keep their
+    defaults. ingestion_max_age_hours = null shows the age without judging it.
+  EOT
+  type = object({
+    availability_pct        = optional(number, 99.5)
+    latency_p95_ms          = optional(number, 1000)
+    run_cpu_pct             = optional(number, 80)
+    run_memory_pct          = optional(number, 80)
+    spanner_cpu_pct         = optional(number, 65)
+    min_requests_per_hour   = optional(number, 100)
+    ingestion_max_age_hours = optional(number)
+    max_row_drop_pct        = optional(number, 10)
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = alltrue([
+      for pct in [
+        var.targets.availability_pct,
+        var.targets.run_cpu_pct,
+        var.targets.run_memory_pct,
+        var.targets.spanner_cpu_pct,
+        var.targets.max_row_drop_pct,
+      ] : pct != null && pct >= 0 && pct <= 100
+    ])
+    error_message = "targets: availability_pct, run_cpu_pct, run_memory_pct, spanner_cpu_pct and max_row_drop_pct are percentages between 0 and 100."
+  }
+
+  validation {
+    condition = alltrue([
+      for value in [var.targets.latency_p95_ms, var.targets.min_requests_per_hour] : value != null && value >= 0
+    ])
+    error_message = "targets: latency_p95_ms and min_requests_per_hour must not be negative."
+  }
+
+  validation {
+    condition     = var.targets.ingestion_max_age_hours == null ? true : var.targets.ingestion_max_age_hours >= 0
+    error_message = "targets: ingestion_max_age_hours must not be negative. Leave it null to show the age without judging it."
+  }
+}
+
+variable "canary" {
+  description = "The node the dc_api probe resolves, and the name it must resolve to. Pick a node your deployment serves."
+  type = object({
+    node = optional(string, "country/GTM")
+    name = optional(string, "Guatemala")
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = try(trimspace(var.canary.node), "") != "" && try(trimspace(var.canary.name), "") != ""
+    error_message = "canary.node and canary.name must not be empty."
+  }
+}
+
+variable "signals_window_minutes" {
+  description = "Window for the golden signals read from Cloud Monitoring, one point per minute."
+  type        = number
+  default     = 60
+  nullable    = false
+
+  validation {
+    condition     = var.signals_window_minutes >= 5 && var.signals_window_minutes <= 1440 && floor(var.signals_window_minutes) == var.signals_window_minutes
+    error_message = "signals_window_minutes must be a whole number between 5 and 1440."
+  }
+}
