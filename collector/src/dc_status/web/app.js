@@ -980,6 +980,681 @@ function renderDimensions(snapshot) {
   host.replaceChildren(...dimensionsOf(snapshot).map((dimension) => builders[dimension.id](snapshot, dimension)));
 }
 
+/* ---------- charts ----------
+
+   Inline SVG, drawn at the width the layout gives it and redrawn when that
+   width changes. Thin marks, hairline axes, a 2 px gap between stacked
+   segments and a 2 px surface ring around dots. Colours come from CSS classes
+   bound to the theme tokens, so a theme switch needs no redraw.
+
+   Every chart has a text equivalent: an aria-label that summarises it, and a
+   table elsewhere on the page that is its table view. Tooltips enhance and
+   never gate — the same readout appears on hover and on keyboard focus. */
+
+const tooltip = { node: null, owner: null };
+
+function showTooltip(owner, rect, lines) {
+  const node = tooltip.node || (tooltip.node = doc.getElementById("tooltip"));
+  if (!node) return;
+  tooltip.owner = owner;
+  node.replaceChildren(
+    ...lines.map((line) => {
+      const row = element("span", "tooltip__row");
+      if (line.value) row.append(element("span", "tooltip__value", line.value));
+      if (line.label) row.append(element("span", "tooltip__label", line.label));
+      return row;
+    })
+  );
+  node.hidden = false;
+  // Measured after it has content, then kept inside the viewport.
+  const box = node.getBoundingClientRect();
+  const margin = 8;
+  let left = rect.left + rect.width / 2 - box.width / 2;
+  left = Math.max(margin, Math.min(left, window.innerWidth - box.width - margin));
+  let top = rect.top - box.height - margin;
+  if (top < margin) top = rect.bottom + margin;
+  node.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
+  node.dataset.visible = "true";
+}
+
+function hideTooltip(owner) {
+  const node = tooltip.node || doc.getElementById("tooltip");
+  if (!node || (owner && tooltip.owner !== owner)) return;
+  tooltip.owner = null;
+  node.dataset.visible = "false";
+  node.hidden = true;
+}
+
+function pointRect(svg, x, y) {
+  const box = svg.getBoundingClientRect();
+  return { left: box.left + x - 1, top: box.top + y - 6, width: 2, height: 12, bottom: box.top + y + 6 };
+}
+
+function frame(width, height, className) {
+  return svgNode("svg", {
+    class: `plot ${className || ""}`.trim(),
+    width,
+    height,
+    viewBox: `0 0 ${width} ${height}`,
+    focusable: "false",
+  });
+}
+
+function describe(svg, label, interactive) {
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", label);
+  if (interactive) {
+    svg.setAttribute("tabindex", "0");
+    svg.setAttribute("focusable", "true");
+    svg.classList.add("plot--interactive");
+  }
+  return svg;
+}
+
+function extent(values) {
+  const finite = values.filter(isNumber);
+  if (!finite.length) return [0, 1];
+  return [Math.min(...finite), Math.max(...finite)];
+}
+
+/* A sparkline: one series, a hairline baseline, the target as a line where the
+   document has one, and the latest value as an end dot. Interactive ones get a
+   crosshair that snaps to the nearest minute, driven by pointer or arrow keys. */
+function sparkline({ width, height, values, target, zeroBased, area, interactive, label, readout, axis }) {
+  const axisBand = axis ? 14 : 0;
+  const top = 5;
+  const plotHeight = height - axisBand - top - 4;
+  const left = 1;
+  const right = 5;
+  const n = values.length;
+  const svg = frame(width, height, "spark");
+  if (!n) return describe(svg, `${label}: no data in the window.`, false);
+
+  let [lo, hi] = extent(values.concat(isNumber(target) ? [target] : []));
+  if (zeroBased) lo = Math.min(0, lo);
+  if (hi === lo) hi = lo + 1;
+  const span = hi - lo;
+  hi += zeroBased ? span * 0.08 : span * 0.1;
+  if (!zeroBased) lo -= span * 0.1;
+
+  const x = (index) => left + (n === 1 ? 0 : (index / (n - 1)) * (width - left - right));
+  const y = (value) => top + plotHeight - ((value - lo) / (hi - lo)) * plotHeight;
+  const base = top + plotHeight;
+
+  svg.append(svgNode("line", { class: "plot__axis", x1: 0, x2: width, y1: base + 0.5, y2: base + 0.5 }));
+
+  const points = values.map((value, index) => (isNumber(value) ? [x(index), y(value)] : null));
+  let path = "";
+  let pen = false;
+  points.forEach((point) => {
+    if (!point) {
+      pen = false;
+      return;
+    }
+    path += `${pen ? "L" : "M"}${point[0].toFixed(1)},${point[1].toFixed(1)}`;
+    pen = true;
+  });
+
+  if (area) {
+    const first = points.findIndex(Boolean);
+    const last = points.length - 1 - [...points].reverse().findIndex(Boolean);
+    if (first >= 0 && !points.slice(first, last + 1).includes(null)) {
+      svg.append(
+        svgNode("path", {
+          class: "plot__area",
+          d: `${path}L${points[last][0].toFixed(1)},${base}L${points[first][0].toFixed(1)},${base}Z`,
+        })
+      );
+    }
+  }
+
+  if (isNumber(target)) {
+    const ty = Math.round(y(target)) + 0.5;
+    svg.append(svgNode("line", { class: "plot__target", x1: 0, x2: width, y1: ty, y2: ty }));
+  }
+
+  svg.append(svgNode("path", { class: "plot__line", d: path }));
+
+  const lastIndex = points.length - 1 - [...points].reverse().findIndex(Boolean);
+  if (lastIndex < points.length && points[lastIndex]) {
+    svg.append(svgNode("circle", { class: "plot__dot", cx: points[lastIndex][0], cy: points[lastIndex][1], r: 3 }));
+  }
+
+  if (axis) {
+    const ticks = svgNode("g", { class: "plot__ticks" });
+    const start = svgNode("text", { x: 0, y: height - 2 });
+    start.textContent = axis[0];
+    const end = svgNode("text", { x: width, y: height - 2, "text-anchor": "end" });
+    end.textContent = axis[1];
+    ticks.append(start, end);
+    svg.append(ticks);
+  }
+
+  describe(svg, label, interactive);
+  if (!interactive) return svg;
+
+  const cross = svgNode("line", { class: "plot__crosshair", x1: 0, x2: 0, y1: top - 2, y2: base, visibility: "hidden" });
+  const marker = svgNode("circle", { class: "plot__dot plot__dot--hover", r: 3.5, cx: 0, cy: 0, visibility: "hidden" });
+  svg.append(cross, marker);
+
+  let current = null;
+  const select = (index) => {
+    if (index === null || !points[index]) {
+      current = null;
+      cross.setAttribute("visibility", "hidden");
+      marker.setAttribute("visibility", "hidden");
+      hideTooltip(svg);
+      return;
+    }
+    current = index;
+    const [px, py] = points[index];
+    cross.setAttribute("x1", px);
+    cross.setAttribute("x2", px);
+    cross.setAttribute("visibility", "visible");
+    marker.setAttribute("cx", px);
+    marker.setAttribute("cy", py);
+    marker.setAttribute("visibility", "visible");
+    showTooltip(svg, pointRect(svg, px, py), readout(index));
+  };
+  const nearest = (event) => {
+    const box = svg.getBoundingClientRect();
+    const px = ((event.clientX - box.left) / box.width) * width;
+    const index = Math.round(((px - left) / (width - left - right)) * (n - 1));
+    return Math.max(0, Math.min(n - 1, index));
+  };
+  svg.addEventListener("pointermove", (event) => select(nearest(event)));
+  svg.addEventListener("pointerleave", () => {
+    if (doc.activeElement !== svg) select(null);
+  });
+  svg.addEventListener("focus", () => select(lastIndex));
+  svg.addEventListener("blur", () => select(null));
+  svg.addEventListener("keydown", (event) => {
+    const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+    if (step) {
+      event.preventDefault();
+      select(Math.max(0, Math.min(n - 1, (current === null ? lastIndex : current) + step)));
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      select(event.key === "Home" ? 0 : n - 1);
+    } else if (event.key === "Escape") {
+      select(null);
+    }
+  });
+  return svg;
+}
+
+/* A semicircular gauge with the limit as a tick on the arc. */
+function gauge({ name, value, max, limit, valueText, limitText, over, detail }) {
+  const node = element("div", "gauge");
+  const width = 136;
+  const height = 80;
+  const cx = width / 2;
+  const cy = 70;
+  const r = 54;
+  const svg = frame(width, height, "gauge__plot");
+  const point = (fraction, radius) => {
+    const angle = Math.PI * (1 - fraction);
+    return [cx + radius * Math.cos(angle), cy - radius * Math.sin(angle)];
+  };
+  const arc = (from, to, className) => {
+    const [x0, y0] = point(from, r);
+    const [x1, y1] = point(to, r);
+    return svgNode("path", {
+      class: className,
+      d: `M${x0.toFixed(2)},${y0.toFixed(2)} A${r},${r} 0 0 1 ${x1.toFixed(2)},${y1.toFixed(2)}`,
+    });
+  };
+  svg.append(arc(0, 1, "gauge__track"));
+  const known = isNumber(value) && isNumber(max) && max > 0;
+  if (known) {
+    const fraction = Math.max(0, Math.min(value / max, 1));
+    if (fraction > 0) svg.append(arc(0, Math.max(fraction, 0.01), `gauge__fill${over ? " gauge__fill--over" : ""}`));
+  }
+  if (isNumber(limit) && isNumber(max) && max > 0) {
+    const fraction = Math.max(0, Math.min(limit / max, 1));
+    const [x0, y0] = point(fraction, r - 7);
+    const [x1, y1] = point(fraction, r + 8);
+    svg.append(svgNode("line", { class: "gauge__limit", x1: x0, y1: y0, x2: x1, y2: y1 }));
+  }
+  const text = svgNode("text", { class: "gauge__value", x: cx, y: cy - 4, "text-anchor": "middle" });
+  text.textContent = known ? valueText : "n/a";
+  svg.append(text);
+
+  const summary = known
+    ? `${name}: ${valueText}${limitText ? `, ${limitText}` : ""}. ${over ? "At or above its limit." : "Within its limit."}`
+    : `${name}: not available.`;
+  describe(svg, summary, true);
+  const lines = () => [
+    { value: known ? valueText : "n/a", label: name },
+    ...(limitText ? [{ label: limitText }] : []),
+    ...(detail ? [{ label: detail }] : []),
+  ];
+  const open = () => showTooltip(svg, svg.getBoundingClientRect(), lines());
+  svg.addEventListener("pointerenter", open);
+  svg.addEventListener("pointerleave", () => {
+    if (doc.activeElement !== svg) hideTooltip(svg);
+  });
+  svg.addEventListener("focus", open);
+  svg.addEventListener("blur", () => hideTooltip(svg));
+
+  node.append(svg);
+  node.append(element("span", "gauge__name", name));
+  const foot = element("span", "gauge__foot");
+  if (limitText) foot.append(element("span", "gauge__limit-text", limitText));
+  if (known) foot.append(state(over ? "degraded" : "healthy", over ? "at limit" : "within"));
+  node.append(foot);
+  return node;
+}
+
+/* A stacked proportion: one segment per serving source, 2 px surface gaps. */
+function coverageBar({ width, height, snapshot, interactive }) {
+  const { serving } = sourceStats(snapshot);
+  const slots = sourceSlots(snapshot);
+  const svg = frame(width, height, "coverage");
+  const total = serving.reduce((sum, source) => sum + source.rows, 0);
+  if (!serving.length || total <= 0) {
+    svg.append(svgNode("rect", { class: "coverage__empty", x: 0.5, y: 0.5, width: width - 1, height: height - 1, rx: 2 }));
+    return describe(svg, "No source is serving rows.", false);
+  }
+  const gap = 2;
+  const minimum = 2;
+  const usable = width - gap * (serving.length - 1);
+  let cursor = 0;
+  const parts = serving.map((source) => {
+    const share = source.rows / total;
+    return { source, share, width: Math.max(minimum, share * usable) };
+  });
+  // Floors can overshoot the track; take the excess back from the widest.
+  const excess = parts.reduce((sum, part) => sum + part.width, 0) - usable;
+  if (excess > 0) parts.reduce((a, b) => (b.width > a.width ? b : a)).width -= excess;
+  parts.forEach((part) => {
+    const rect = svgNode("rect", {
+      class: `coverage__segment slot-${slots.get(part.source.prefix)}`,
+      x: cursor.toFixed(2),
+      y: 0,
+      width: Math.max(part.width, 1).toFixed(2),
+      height,
+      rx: 1.5,
+    });
+    if (interactive) {
+      const lines = [
+        { value: `${oneDecimal.format(part.share * 100)} %`, label: part.source.prefix },
+        { label: `${decimal.format(part.source.rows)} rows` },
+      ];
+      rect.addEventListener("pointerenter", () => showTooltip(rect, rect.getBoundingClientRect(), lines));
+      rect.addEventListener("pointerleave", () => hideTooltip(rect));
+    }
+    svg.append(rect);
+    cursor += part.width + gap;
+  });
+  return describe(
+    svg,
+    `Share of rows served by source: ${parts
+      .map((part) => `${part.source.prefix} ${oneDecimal.format(part.share * 100)} %`)
+      .join(", ")}.`,
+    false
+  );
+}
+
+/* The ingestion timeline: 30 days to now. A disc per success, a square per
+   failure, a ring per run still going, and an open square above the axis for
+   every upload the platform has not ingested yet. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+const TIMELINE_DAYS = 30;
+
+function timelineMarks(snapshot) {
+  const now = parseStamp(snapshot.generated_at) || new Date();
+  const from = now.getTime() - TIMELINE_DAYS * DAY_MS;
+  const runs = (snapshot.ingestions || [])
+    .map((entry) => ({ entry, at: parseStamp(entry.creation), kind: ingestionKind(entry) }))
+    .filter((mark) => mark.at);
+  const pending = ((snapshot.freshness || {}).pending_uploads || [])
+    .map((upload) => ({ upload, at: parseStamp(upload.last_updated), kind: "pending" }))
+    .filter((mark) => mark.at);
+  const inside = (mark) => mark.at.getTime() >= from && mark.at.getTime() <= now.getTime() + 60000;
+  return {
+    now,
+    from,
+    marks: runs.filter(inside).concat(pending.filter(inside)).sort((a, b) => a.at - b.at),
+    outside: runs.filter((mark) => !inside(mark)).length,
+  };
+}
+
+function markShape(kind, cx, cy, size) {
+  const s = size || 9;
+  if (kind === "success") return svgNode("circle", { class: "mark mark--success", cx, cy, r: s / 2 });
+  if (kind === "failure") {
+    return svgNode("rect", { class: "mark mark--failure", x: cx - s / 2, y: cy - s / 2, width: s, height: s, rx: 1 });
+  }
+  if (kind === "running") return svgNode("circle", { class: "mark mark--running", cx, cy, r: s / 2 - 0.75 });
+  const p = s * 0.72;
+  return svgNode("rect", { class: "mark mark--pending", x: cx - p / 2, y: cy - p / 2, width: p, height: p });
+}
+
+const MARK_WORDS = {
+  success: "successful ingestion",
+  failure: "failed ingestion",
+  running: "ingestion in progress",
+  pending: "upload not yet ingested",
+};
+
+function markLines(mark) {
+  if (mark.kind === "pending") {
+    return [
+      { value: `${formatStamp(mark.upload.last_updated)} UTC`, label: `${mark.upload.prefix}: ${MARK_WORDS.pending}` },
+    ];
+  }
+  const entry = mark.entry;
+  const duration = formatDuration(entry.execution_seconds);
+  return [
+    { value: `${formatStamp(entry.creation)} UTC`, label: `${entry.status || mark.kind}${entry.stage ? ` · ${entry.stage}` : ""}` },
+    ...(duration ? [{ label: `took ${duration}` }] : []),
+  ];
+}
+
+function timeline({ width, height, snapshot, interactive, compact }) {
+  const { now, from, marks, outside } = timelineMarks(snapshot);
+  const svg = frame(width, height, "timeline");
+  const left = 6;
+  const right = 8;
+  const axisY = compact ? Math.round(height * 0.55) : Math.round(height * 0.55);
+  const x = (time) => left + ((time - from) / (now.getTime() - from)) * (width - left - right);
+  const nowX = Math.round(x(now.getTime())) + 0.5;
+
+  svg.append(svgNode("line", { class: "plot__axis", x1: 0, x2: width, y1: axisY + 0.5, y2: axisY + 0.5 }));
+
+  const ticks = svgNode("g", { class: "plot__ticks" });
+  const tickDays = compact ? [30] : [30, 20, 10];
+  tickDays.forEach((days) => {
+    const tx = x(now.getTime() - days * DAY_MS);
+    if (!compact) svg.append(svgNode("line", { class: "plot__tick", x1: tx, x2: tx, y1: axisY + 3, y2: axisY + 7 }));
+    const label = svgNode("text", { x: Math.max(0, tx - (days === 30 ? left : 0)), y: height - 2, "text-anchor": days === 30 ? "start" : "middle" });
+    label.textContent = `${days} d ago`;
+    ticks.append(label);
+  });
+  const nowLabel = svgNode("text", { x: width, y: height - 2, "text-anchor": "end" });
+  nowLabel.textContent = "now";
+  ticks.append(nowLabel);
+  svg.append(ticks);
+
+  const limit = targets(snapshot).ingestion_max_age_hours;
+  if (isNumber(limit) && limit > 0 && limit < TIMELINE_DAYS * 24) {
+    const lx = Math.round(x(now.getTime() - limit * 60 * 60 * 1000)) + 0.5;
+    svg.append(svgNode("line", { class: "plot__target", x1: lx, x2: lx, y1: 3, y2: axisY + 8 }));
+  }
+
+  svg.append(svgNode("line", { class: "timeline__now", x1: nowX, x2: nowX, y1: 2, y2: axisY + 8 }));
+
+  const size = compact ? 8 : 10;
+  const placed = marks.map((mark) => {
+    const cx = Math.min(x(mark.at.getTime()), width - right);
+    const cy = mark.kind === "pending" ? axisY - (compact ? 14 : 16) : axisY;
+    const shape = markShape(mark.kind, cx, cy, size);
+    svg.append(shape);
+    return { mark, cx, cy, shape };
+  });
+
+  const counts = { success: 0, failure: 0, running: 0, pending: 0 };
+  marks.forEach((mark) => {
+    counts[mark.kind] += 1;
+  });
+  const summary = [
+    `Ingestions in the last ${TIMELINE_DAYS} days: ${plural(counts.success, "success", "successes")}, ${plural(counts.failure, "failure")}`,
+    counts.running ? `, ${decimal.format(counts.running)} in progress` : "",
+    `. ${plural(counts.pending, "upload")} not yet ingested.`,
+    outside ? ` ${plural(outside, "older run")} not shown.` : "",
+  ].join("");
+  describe(svg, summary, interactive && placed.length > 0);
+  if (!interactive || !placed.length) return svg;
+
+  const ring = svgNode("circle", { class: "timeline__focus", r: size, cx: 0, cy: 0, visibility: "hidden" });
+  svg.append(ring);
+  let current = null;
+  const select = (index) => {
+    if (index === null) {
+      current = null;
+      ring.setAttribute("visibility", "hidden");
+      hideTooltip(svg);
+      return;
+    }
+    current = index;
+    const { mark, cx, cy } = placed[index];
+    ring.setAttribute("cx", cx);
+    ring.setAttribute("cy", cy);
+    ring.setAttribute("visibility", "visible");
+    showTooltip(svg, pointRect(svg, cx, cy), markLines(mark));
+  };
+  // The pointer only has to be closest, not on the 9 px mark itself.
+  svg.addEventListener("pointermove", (event) => {
+    const box = svg.getBoundingClientRect();
+    const px = ((event.clientX - box.left) / box.width) * width;
+    const py = ((event.clientY - box.top) / box.height) * height;
+    let best = null;
+    let distance = Infinity;
+    placed.forEach((item, index) => {
+      const d = Math.hypot(item.cx - px, item.cy - py);
+      if (d < distance) {
+        distance = d;
+        best = index;
+      }
+    });
+    select(distance <= 16 ? best : null);
+  });
+  svg.addEventListener("pointerleave", () => {
+    if (doc.activeElement !== svg) select(null);
+  });
+  svg.addEventListener("focus", () => select(placed.length - 1));
+  svg.addEventListener("blur", () => select(null));
+  svg.addEventListener("keydown", (event) => {
+    const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+    if (step) {
+      event.preventDefault();
+      const base = current === null ? placed.length - 1 : current;
+      select((base + step + placed.length) % placed.length);
+    } else if (event.key === "Escape") {
+      select(null);
+    }
+  });
+  return svg;
+}
+
+function timelineLegend() {
+  const legend = element("ul", "legend");
+  ["success", "failure", "running", "pending"].forEach((kind) => {
+    const item = element("li", "legend__item");
+    const key = frame(12, 12, "legend__key");
+    key.setAttribute("aria-hidden", "true");
+    key.append(markShape(kind, 6, 6, 9));
+    item.append(key);
+    item.append(element("span", null, MARK_WORDS[kind]));
+    legend.append(item);
+  });
+  return legend;
+}
+
+/* ---------- series readouts ---------- */
+
+function minuteLabels(snapshot, count) {
+  const signals = snapshot.signals || {};
+  const step = (signals.step_seconds || 60) * 1000;
+  const end = parseStamp(snapshot.generated_at);
+  return (index) => {
+    if (!end) return `minute ${index + 1}`;
+    return `${clockFormat.format(new Date(end.getTime() - (count - 1 - index) * step))} UTC`;
+  };
+}
+
+function seriesSummary(values, format, target, targetText) {
+  const finite = values.filter(isNumber);
+  if (!finite.length) return "no data in the window.";
+  const [lo, hi] = extent(finite);
+  let text = `from ${format(lo)} to ${format(hi)}, latest ${format(finite[finite.length - 1])}.`;
+  if (isNumber(target)) {
+    const above = finite.filter((value) => value > target).length;
+    text += ` ${decimal.format(above)} of ${plural(finite.length, "minute")} above the ${targetText} target.`;
+  }
+  return text;
+}
+
+function signalChart(snapshot, kind, width) {
+  const signals = snapshot.signals || {};
+  const t = targets(snapshot);
+  const windowText = `last ${decimal.format(signals.window_minutes || 60)} min`;
+  let values = [];
+  let target = null;
+  let format = (value) => decimal.format(value);
+  let name = "";
+  let targetText = "";
+  if (kind === "traffic") {
+    values = (signals.traffic || {}).series || [];
+    format = (value) => `${formatRate(value)} req/s`;
+    name = "Requests per second";
+  } else if (kind === "errors") {
+    values = (signals.errors || {}).series || [];
+    // The error budget is the complement of the availability target the
+    // collector judged against — nothing here chooses a threshold.
+    target = isNumber(t.availability_pct) ? 100 - t.availability_pct : null;
+    format = (value) => formatPct(value, 2);
+    targetText = isNumber(target) ? formatPct(Number(target.toFixed(3))) : "";
+    name = "Share of 5xx responses";
+  } else {
+    values = (signals.latency || {}).series_p95 || [];
+    target = isNumber(t.latency_p95_ms) ? t.latency_p95_ms : null;
+    format = formatMs;
+    targetText = isNumber(target) ? formatMs(target) : "";
+    name = "p95 latency";
+  }
+  const at = minuteLabels(snapshot, values.length);
+  return sparkline({
+    width,
+    height: 58,
+    values,
+    target,
+    zeroBased: true,
+    area: kind === "traffic",
+    interactive: true,
+    axis: [`−${decimal.format(signals.window_minutes || 60)} min`, "now"],
+    label: `${name}, ${windowText}: ${seriesSummary(values, format, target, targetText)}`,
+    readout: (index) => [
+      { value: isNumber(values[index]) ? format(values[index]) : "no data", label: at(index) },
+      ...(isNumber(target) ? [{ label: `target ${targetText}` }] : []),
+    ],
+  });
+}
+
+function saturationGauges(snapshot) {
+  const saturation = (snapshot.signals || {}).saturation || {};
+  const t = targets(snapshot);
+  const pct = (value) => (isNumber(value) ? `${decimal.format(Math.round(value))} %` : "n/a");
+  const percentGauge = (name, value, limit, detail) =>
+    gauge({
+      name,
+      value,
+      max: 100,
+      limit,
+      valueText: pct(value),
+      limitText: isNumber(limit) ? `limit ${pct(limit)}` : "",
+      over: isNumber(value) && isNumber(limit) && value >= limit,
+      detail,
+    });
+  const instances = saturation.instances;
+  const most = saturation.max_instances;
+  return [
+    percentGauge("Cloud Run CPU", saturation.run_cpu_pct, t.run_cpu_pct, "container CPU utilisation"),
+    percentGauge("Cloud Run memory", saturation.run_memory_pct, t.run_memory_pct, "container memory utilisation"),
+    gauge({
+      name: "Instances",
+      value: instances,
+      max: isNumber(most) && most > 0 ? most : isNumber(instances) ? Math.max(instances, 1) : null,
+      limit: isNumber(most) ? most : null,
+      valueText: isNumber(instances) ? `${decimal.format(instances)} / ${isNumber(most) ? decimal.format(most) : "?"}` : "n/a",
+      limitText: isNumber(most) ? `max ${decimal.format(most)}` : "",
+      over: isNumber(instances) && isNumber(most) && instances >= most,
+      detail: "active container instances",
+    }),
+    percentGauge("Spanner CPU", saturation.spanner_cpu_pct, t.spanner_cpu_pct, "high-priority CPU utilisation"),
+  ];
+}
+
+function countChart(snapshot, table, width) {
+  const history = historyFor(snapshot, table);
+  const values = history.map((entry) => entry.value);
+  return sparkline({
+    width,
+    height: 22,
+    values,
+    zeroBased: false,
+    interactive: true,
+    label: `${table} rows over the last ${plural(values.length, "successful ingestion")}: ${seriesSummary(values, (value) => decimal.format(value))}`,
+    readout: (index) => [
+      { value: decimal.format(values[index]), label: `${formatStamp(history[index].at) || "unknown time"} UTC` },
+    ],
+  });
+}
+
+function drawCharts(snapshot) {
+  if (!snapshot) return;
+  hideTooltip();
+  doc.querySelectorAll("[data-chart]").forEach((host) => {
+    const width = Math.floor(host.clientWidth);
+    if (width <= 0) return;
+    if (Number(host.dataset.drawnWidth) === width && host.dataset.drawnFor === snapshot.generated_at) return;
+    const kind = host.dataset.chart;
+    let content = null;
+    if (kind === "tile-latency" && snapshot.signals && snapshot.signals.latency) {
+      const values = snapshot.signals.latency.series_p95 || [];
+      const target = targets(snapshot).latency_p95_ms;
+      content = sparkline({
+        width,
+        height: 34,
+        values,
+        target: isNumber(target) ? target : null,
+        zeroBased: true,
+        interactive: false,
+        label: `p95 latency, last hour: ${seriesSummary(values, formatMs, isNumber(target) ? target : null, formatMs(target))}`,
+      });
+    } else if (kind === "tile-coverage" || kind === "coverage") {
+      content = coverageBar({ width, height: kind === "coverage" ? 12 : 10, snapshot, interactive: kind === "coverage" });
+    } else if (kind === "tile-timeline") {
+      content = timeline({ width, height: 46, snapshot, interactive: false, compact: true });
+    } else if (kind === "timeline") {
+      const wrap = element("div");
+      wrap.append(timeline({ width, height: 56, snapshot, interactive: true, compact: false }));
+      wrap.append(timelineLegend());
+      content = wrap;
+    } else if (kind === "traffic" || kind === "errors" || kind === "latency") {
+      content = signalChart(snapshot, kind, width);
+    } else if (kind === "gauges") {
+      host.replaceChildren(...saturationGauges(snapshot));
+      host.dataset.drawnWidth = String(width);
+      host.dataset.drawnFor = snapshot.generated_at;
+      return;
+    } else if (kind === "count") {
+      content = countChart(snapshot, host.dataset.table, width);
+    }
+    if (content) host.replaceChildren(content);
+    host.dataset.drawnWidth = String(width);
+    host.dataset.drawnFor = snapshot.generated_at;
+  });
+}
+
+function watchWidth() {
+  if (!("ResizeObserver" in window)) return;
+  let pending = false;
+  let lastWidth = 0;
+  const observer = new ResizeObserver((entries) => {
+    const width = Math.round(entries[0].contentRect.width);
+    if (width === lastWidth || pending) return;
+    lastWidth = width;
+    pending = true;
+    window.requestAnimationFrame(() => {
+      pending = false;
+      drawCharts(latest);
+    });
+  });
+  observer.observe(doc.getElementById("body"));
+}
+
 /* ---------- the bar ---------- */
 
 function renderBar(snapshot) {
@@ -1019,6 +1694,7 @@ function render(snapshot) {
   renderFindings(snapshot);
   renderDimensions(snapshot);
   renderAge();
+  drawCharts(snapshot);
 
   const readout = doc.getElementById("readout");
   readout.dataset.state = "fresh";
@@ -1164,6 +1840,10 @@ function start() {
     if (doc.visibilityState === "visible" && Date.now() - lastFetchAt >= REFRESH_EVERY_MS) load();
   });
   window.setInterval(renderAge, 30000);
+  // A tooltip belongs to where the pointer was; scrolling moves the page out
+  // from under it.
+  window.addEventListener("scroll", () => hideTooltip(), { passive: true });
+  watchWidth();
 
   load();
 }

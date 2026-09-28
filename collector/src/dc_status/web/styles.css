@@ -69,14 +69,22 @@
   --status-critical: #b4291f;
   --status-unknown: #6f6d66;
 
+  /* Data sources. Eight hues in a fixed order — the order is the colour-vision
+     safety mechanism, so a slot is never re-ordered or cycled. Validated as a
+     set on this surface (validate_palette.js, adjacent pairs, since the sources
+     meet only as neighbours in the coverage bar): worst adjacent CVD ΔE 9.1,
+     normal-vision ΔE 19.6. Slots 3, 4 and 5 sit under 3:1 on the light
+     surface; the sources table beside every bar is their relief. Colour
+     follows the source, never its rank. */
   --series-1: #2a78d6;
-  --series-2: #c8501f;
-  --series-3: #147d59;
-  --series-4: #8a6a00;
-  --series-5: #b5487a;
-  --series-6: #4a3aa7;
-  --series-7: #0f6f72;
-  --series-8: #0f6f72;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
+  --series-other: #b9b7ab;
 
   /* A strict 4 px scale. */
   --space-1: 4px;
@@ -460,10 +468,6 @@ body {
   display: block;
   margin: var(--space-3) 0 var(--space-1);
   min-height: 0;
-}
-
-.tile__chart:empty {
-  display: none;
 }
 
 .chips {
@@ -864,6 +868,330 @@ body {
   font-family: var(--mono);
   font-size: 0.8125rem;
   color: var(--text-secondary);
+}
+
+/* ---------- charts ---------- */
+
+.chart {
+  min-width: 0;
+  margin: var(--space-2) 0 var(--space-1);
+}
+
+.plot {
+  display: block;
+  overflow: visible;
+}
+
+.plot--interactive {
+  cursor: crosshair;
+  touch-action: pan-y;
+}
+
+.plot--interactive:focus-visible {
+  outline-offset: 4px;
+}
+
+.plot__axis,
+.plot__tick {
+  stroke: var(--gridline);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.plot__ticks text {
+  fill: var(--text-muted);
+  font-family: var(--sans);
+  font-size: 10px;
+}
+
+.plot__line {
+  fill: none;
+  stroke: var(--text-primary);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.plot__area {
+  fill: var(--text-primary);
+  opacity: 0.07;
+}
+
+/* The target the collector judged against, drawn from the document. Solid and
+   thin: a line to compare against, not a gridline. */
+.plot__target {
+  stroke: var(--status-warning);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.plot__dot {
+  fill: var(--text-primary);
+  stroke: var(--page);
+  stroke-width: 2;
+  paint-order: stroke;
+}
+
+.tile .plot__dot {
+  stroke: var(--surface);
+}
+
+.plot__crosshair {
+  stroke: var(--baseline);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+/* Saturation gauges. */
+
+.gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  text-align: center;
+}
+
+.gauge__plot {
+  max-width: 100%;
+  height: auto;
+}
+
+.gauge__track,
+.gauge__fill {
+  fill: none;
+  stroke-width: 8;
+  stroke-linecap: butt;
+}
+
+.gauge__track {
+  stroke: var(--gridline);
+}
+
+.gauge__fill {
+  stroke: var(--text-primary);
+}
+
+.gauge__fill--over {
+  stroke: var(--status-warning);
+}
+
+.gauge__limit {
+  stroke: var(--status-warning);
+  stroke-width: 2;
+}
+
+.gauge__value {
+  fill: var(--text-primary);
+  font-family: var(--mono);
+  font-size: 17px;
+}
+
+.gauge__name {
+  font-size: 0.8125rem;
+}
+
+.gauge__foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0 var(--space-2);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.gauge__foot .state {
+  font-size: 0.75rem;
+}
+
+/* Coverage and swatches share one slot table. */
+
+.coverage__segment.slot-1,
+.swatch[data-slot="1"] {
+  fill: var(--series-1);
+  background: var(--series-1);
+}
+.coverage__segment.slot-2,
+.swatch[data-slot="2"] {
+  fill: var(--series-2);
+  background: var(--series-2);
+}
+.coverage__segment.slot-3,
+.swatch[data-slot="3"] {
+  fill: var(--series-3);
+  background: var(--series-3);
+}
+.coverage__segment.slot-4,
+.swatch[data-slot="4"] {
+  fill: var(--series-4);
+  background: var(--series-4);
+}
+.coverage__segment.slot-5,
+.swatch[data-slot="5"] {
+  fill: var(--series-5);
+  background: var(--series-5);
+}
+.coverage__segment.slot-6,
+.swatch[data-slot="6"] {
+  fill: var(--series-6);
+  background: var(--series-6);
+}
+.coverage__segment.slot-7,
+.swatch[data-slot="7"] {
+  fill: var(--series-7);
+  background: var(--series-7);
+}
+.coverage__segment.slot-8,
+.swatch[data-slot="8"] {
+  fill: var(--series-8);
+  background: var(--series-8);
+}
+.coverage__segment.slot-other,
+.swatch[data-slot="other"] {
+  fill: var(--series-other);
+  background: var(--series-other);
+}
+
+.coverage__segment {
+  transition: opacity var(--dur-hover) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .chart--coverage .coverage:hover .coverage__segment:not(:hover) {
+    opacity: 0.55;
+  }
+}
+
+.coverage__empty {
+  fill: none;
+  stroke: var(--baseline);
+}
+
+/* Ingestion timeline marks. State marks wear status hues and a distinct
+   shape; the legend spells each out. */
+
+.mark {
+  stroke: var(--page);
+  stroke-width: 2;
+  paint-order: stroke;
+}
+
+.tile .mark {
+  stroke: var(--surface);
+}
+
+.mark--success {
+  fill: var(--status-good);
+}
+
+.mark--failure {
+  fill: var(--status-critical);
+}
+
+.mark--running {
+  fill: var(--page);
+  stroke: var(--text-primary);
+  stroke-width: 1.5;
+}
+
+.mark--pending {
+  fill: none;
+  stroke: var(--status-warning);
+  stroke-width: 1.5;
+}
+
+.legend__key .mark {
+  stroke-width: 0;
+}
+
+.legend__key .mark--running,
+.legend__key .mark--pending {
+  stroke-width: 1.5;
+}
+
+.timeline__now {
+  stroke: var(--text-primary);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.timeline__focus {
+  fill: none;
+  stroke: var(--text-primary);
+  stroke-width: 1;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Per-table trend, sized to sit in a table row. */
+
+.trend {
+  display: block;
+  width: 6rem;
+}
+
+.col-trend,
+.trend-cell {
+  width: 6rem;
+}
+
+/* One tooltip for the page. Values lead, labels follow. */
+
+.tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: 18rem;
+  padding: 6px var(--space-2);
+  border-radius: 4px;
+  background: var(--text-primary);
+  color: var(--page);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur-press) var(--ease-out);
+}
+
+.tooltip[data-visible="true"] {
+  opacity: 1;
+}
+
+.tooltip__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.tooltip__value {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tooltip__label {
+  opacity: 0.78;
 }
 
 /* ---------- data tables ---------- */
