@@ -36,8 +36,11 @@ from .probes import (
     probe_dc_api,
     probe_dc_service,
     probe_frontend,
+    probe_import_status,
     probe_ingestion_lock,
     probe_ingestions,
+    probe_pending_uploads,
+    probe_row_drift,
     probe_schema,
     probe_spanner,
     probe_version_consistency,
@@ -73,7 +76,8 @@ class Clients:
     spanner_factory: object
 
 
-# version_consistency is derived after these complete, so it is not listed.
+# version_consistency, row_drift and pending_uploads are derived from these
+# after they complete, so they are not listed.
 PROBES: tuple[ProbeSpec, ...] = (
     ProbeSpec("dc_api", probe_dc_api, budget_seconds=PUBLIC_TIMEOUT_SECONDS),
     ProbeSpec("dc_service", probe_dc_service),
@@ -88,6 +92,7 @@ PROBES: tuple[ProbeSpec, ...] = (
     ProbeSpec("ingestions", probe_ingestions),
     ProbeSpec("ingestion_lock", probe_ingestion_lock),
     ProbeSpec("data_sources", probe_data_sources, ttl_seconds=300),
+    ProbeSpec("import_status", probe_import_status),
     ProbeSpec("frontend", probe_frontend, budget_seconds=PUBLIC_TIMEOUT_SECONDS),
 )
 
@@ -111,6 +116,7 @@ def _context(config: EnvConfig, clients: Clients) -> ProbeContext:
         spanner_factory=clients.spanner_factory,
         canary_node=config.canary_node,
         canary_name=config.canary_name,
+        targets=config.targets,
     )
 
 
@@ -170,6 +176,17 @@ def collect_status(
         results["version_consistency"] = probe_version_consistency(
             results["dc_service"], results["schema"]
         )
+
+    # The same guard for the derived data checks: each is derived only when
+    # what it reads from was asked for.
+    if "ingestions" in results:
+        results["row_drift"] = probe_row_drift(
+            results["ingestions"], max_drop_pct=config.targets.max_row_drop_pct
+        )
+        if "data_sources" in results:
+            results["pending_uploads"] = probe_pending_uploads(
+                results["data_sources"], results["ingestions"]
+            )
 
     return _document(config, _with_console_links(results, config), signals=None, now=now)
 

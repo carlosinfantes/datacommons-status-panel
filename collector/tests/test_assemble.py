@@ -300,3 +300,66 @@ def test_the_deadline_is_shared_by_the_whole_collection_not_granted_per_probe(mo
         release.set()
     assert time.monotonic() - started < 0.4
     assert all(p["status"] == UNKNOWN for p in document["probes"])
+
+
+def _history_data():
+    return {
+        "ingestions": [{"status": "SUCCESS"}],
+        "count_history": [
+            {
+                "completed_at": "2026-08-01T10:00:00Z",
+                "Node": 10,
+                "Edge": 10,
+                "Observation": 10,
+                "TimeSeries": 10,
+            },
+            {
+                "completed_at": "2026-08-04T10:00:00Z",
+                "Node": 5,
+                "Edge": 10,
+                "Observation": 10,
+                "TimeSeries": 10,
+            },
+        ],
+        "last_success_at": "2026-08-04T10:00:00Z",
+        "age_hours": 32.0,
+    }
+
+
+def test_row_drift_and_pending_uploads_are_derived_and_lifted():
+    probes = (
+        _spec("ingestions", HEALTHY, _history_data()),
+        _spec(
+            "data_sources",
+            HEALTHY,
+            {
+                "sources": [{"prefix": "agency-a", "last_updated": "2026-08-05T09:00:00Z"}],
+                "unmatched_provenances": [],
+            },
+        ),
+        _spec(
+            "ingestion_lock",
+            HEALTHY,
+            {"lock": {"held": False, "owner": None, "since": None}},
+        ),
+        _spec("import_status", HEALTHY, {"imports": {"total": 1}}),
+    )
+    document = _collect(probes)
+    drift = _probe(document, "row_drift")
+    assert drift["status"] == DEGRADED  # Node halved, above the default 10 %
+    assert drift["budget_ms"] == 0
+    pending = _probe(document, "pending_uploads")
+    assert pending["status"] == DEGRADED
+    assert pending["console_url"].startswith("https://console.cloud.google.com/storage/browser/")
+    assert document["count_history"] == _history_data()["count_history"]
+    assert document["imports"] == {"total": 1}
+    assert document["freshness"] == {
+        "last_success_at": "2026-08-04T10:00:00Z",
+        "age_hours": 32.0,
+        "pending_uploads": [{"prefix": "agency-a", "last_updated": "2026-08-05T09:00:00Z"}],
+        "lock": {"held": False, "owner": None, "since": None},
+    }
+
+
+def test_the_production_probe_set_includes_import_status():
+    assert "import_status" in {spec.id for spec in PROBES}

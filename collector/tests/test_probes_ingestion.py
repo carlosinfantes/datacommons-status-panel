@@ -14,6 +14,7 @@
 
 from datetime import UTC, datetime, timedelta
 
+from dc_status.config import Targets
 from dc_status.model import DEGRADED, HEALTHY, UNKNOWN
 from dc_status.probes import probe_ingestion_lock, probe_ingestions
 from dc_status.rest import RestClient
@@ -23,12 +24,19 @@ NOW = datetime(2026, 8, 5, 18, 0, tzinfo=UTC)
 
 
 class FakeSpanner:
-    def __init__(self, rows):
+    """`routes` maps a fragment of the SQL to the rows that statement returns;
+    anything unrouted gets `rows`."""
+
+    def __init__(self, rows, routes=None):
         self._rows = rows
+        self._routes = routes or {}
         self.queries = []
 
     def query(self, sql, **kwargs):
         self.queries.append(sql)
+        for fragment, rows in self._routes.items():
+            if fragment in sql:
+                return rows
         return self._rows
 
     def close(self):
@@ -42,6 +50,7 @@ def _ctx(spanner, session):
     ctx.project_id = "p"
     ctx.region = "us-central1"
     ctx.ingestion_workflow_name = "wf"
+    ctx.targets = Targets()
     return ctx
 
 
@@ -233,3 +242,128 @@ def test_an_old_lock_does_not_claim_the_workflow_is_idle_when_it_could_not_ask()
     assert "no workflow is active" not in probe.detail
     assert "workflow state unavailable" in probe.detail
     assert probe.data["workflow_state_known"] is False
+
+
+_SUCCESS = "Status = 'SUCCESS'"
+
+
+def _row(status="SUCCESS", created="2026-08-05T14:14:00Z", completed="2026-08-05T14:40:00Z"):
+    return {
+        "CreationTimestamp": created,
+        "CompletionTimestamp": completed,
+        "Status": status,
+        "Stage": "DONE",
+        "IngestionFailure": status != "SUCCESS",
+        "ExecutionTime": 1560,
+        "Imports": 1,
+        "WorkflowExecutionID": "exec-1",
+    }
+
+
+def _success(completed, node=100, edge=200, observation=300, timeseries=40):
+    return {
+        "CompletionTimestamp": completed,
+        "NodeCount": node,
+        "EdgeCount": edge,
+        "ObservationCount": observation,
+        "TimeSeriesCount": timeseries,
+    }
+
+
+def test_count_history_lists_successful_ingestions_oldest_first():
+    successes = [  # the query returns newest first
+        _success("2026-08-05T14:40:00Z", node=120),
+        _success("2026-08-01T10:00:00Z", node=110),
+    ]
+    spanner = FakeSpanner([_row()], routes={_SUCCESS: successes})
+    probe = probe_ingestions(_ctx(spanner, _executions("SUCCEEDED")), now=NOW)
+    assert probe.data["count_history"] == [
+        {
+            "completed_at": "2026-08-01T10:00:00Z",
+            "Node": 110,
+            "Edge": 200,
+            "Observation": 300,
+            "TimeSeries": 40,
+        },
+        {
+            "completed_at": "2026-08-05T14:40:00Z",
+            "Node": 120,
+            "Edge": 200,
+            "Observation": 300,
+            "TimeSeries": 40,
+        },
+    ]
+    success_sql = next(sql for sql in spanner.queries if _SUCCESS in sql)
+    for column in ("NodeCount", "EdgeCount", "ObservationCount", "TimeSeriesCount"):
+        assert column in success_sql
+    assert "LIMIT 10" in success_sql
+
+
+def test_freshness_reports_the_last_success_and_its_age():
+    spanner = FakeSpanner([_row()], routes={_SUCCESS: [_success("2026-08-05T12:00:00Z")]})
+    probe = probe_ingestions(_ctx(spanner, _executions("SUCCEEDED")), now=NOW)
+    assert probe.data["last_success_at"] == "2026-08-05T12:00:00Z"
+    assert probe.data["age_hours"] == 6.0
+    # No max age configured: shown, not judged.
+    assert probe.status == HEALTHY
+
+
+def test_the_last_success_is_found_even_behind_ten_failures():
+    # Read by its own query, so a run of failures cannot push the last success
+    # out of view and blank the freshness figure exactly when it matters.
+    failures = [_row(status="FAILURE") for _ in range(10)]
+    spanner = FakeSpanner(failures, routes={_SUCCESS: [_success("2026-07-01T00:00:00Z")]})
+    probe = probe_ingestions(_ctx(spanner, _executions("FAILED")), now=NOW)
+    assert probe.data["last_success_at"] == "2026-07-01T00:00:00Z"
+
+
+def test_an_ingestion_older_than_the_max_age_degrades():
+    spanner = FakeSpanner([_row()], routes={_SUCCESS: [_success("2026-08-03T18:00:00Z")]})
+    ctx = _ctx(spanner, _executions("SUCCEEDED"))
+    ctx.targets = Targets(ingestion_max_age_hours=36)
+    probe = probe_ingestions(ctx, now=NOW)
+    assert probe.status == DEGRADED
+    assert "48.0 h" in probe.detail
+    assert "36 h" in probe.detail
+
+
+def test_an_ingestion_within_the_max_age_is_healthy():
+    spanner = FakeSpanner([_row()], routes={_SUCCESS: [_success("2026-08-05T12:00:00Z")]})
+    ctx = _ctx(spanner, _executions("SUCCEEDED"))
+    ctx.targets = Targets(ingestion_max_age_hours=36)
+    assert probe_ingestions(ctx, now=NOW).status == HEALTHY
+
+
+def test_no_success_on_record_degrades_when_a_max_age_is_set():
+    spanner = FakeSpanner([_row(status="FAILURE")], routes={_SUCCESS: []})
+    ctx = _ctx(spanner, _executions("FAILED"))
+    ctx.targets = Targets(ingestion_max_age_hours=36)
+    probe = probe_ingestions(ctx, now=NOW)
+    assert probe.status == DEGRADED
+    assert probe.data["last_success_at"] is None
+    assert probe.data["age_hours"] is None
+    assert "no successful ingestion" in probe.detail
+
+
+def test_a_failure_status_spelled_failure_degrades():
+    spanner = FakeSpanner([_row(status="FAILURE")], routes={_SUCCESS: []})
+    probe = probe_ingestions(_ctx(spanner, _executions("FAILED")), now=NOW)
+    assert probe.status == DEGRADED
+
+
+def test_a_free_lock_is_reported_as_not_held():
+    rows = [{"Total": 1, "Held": 0, "OldestAcquired": None}]
+    probe = probe_ingestion_lock(_ctx(FakeSpanner(rows), _executions("SUCCEEDED")), now=NOW)
+    assert probe.data["lock"] == {"held": False, "owner": None, "since": None}
+
+
+def test_a_held_lock_reports_its_owner_and_since_when():
+    acquired = "2026-08-05T17:40:00Z"
+    spanner = FakeSpanner(
+        [{"Total": 1, "Held": 1, "OldestAcquired": acquired}],
+        routes={"SELECT LockOwner": [{"LockOwner": "exec-42"}]},
+    )
+    probe = probe_ingestion_lock(_ctx(spanner, _executions("SUCCEEDED")), now=NOW)
+    assert probe.data["lock"] == {"held": True, "owner": "exec-42", "since": acquired}
+    owner_sql = next(sql for sql in spanner.queries if "SELECT LockOwner" in sql)
+    assert "LockOwner IS NOT NULL" in owner_sql

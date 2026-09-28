@@ -295,10 +295,39 @@ ORDER BY CreationTimestamp DESC
 LIMIT 10
 """.strip()
 
+# Successful runs are read by their own query rather than filtered out of the
+# ten above: after ten failures in a row, the last success is exactly the figure
+# freshness needs, and it would have scrolled out of that window. The four count
+# columns feed count_history and row_drift. Some platform versions leave them
+# NULL; row_drift then reports them as not recorded rather than as a drop.
+_SUCCESS_SQL = """
+SELECT CompletionTimestamp, NodeCount, EdgeCount, ObservationCount, TimeSeriesCount
+FROM IngestionHistory
+WHERE Status = 'SUCCESS' AND CompletionTimestamp IS NOT NULL
+ORDER BY CompletionTimestamp DESC
+LIMIT 10
+""".strip()
+
+# Table name in the document -> IngestionHistory column.
+_HISTORY_COUNTS = (
+    ("Node", "NodeCount"),
+    ("Edge", "EdgeCount"),
+    ("Observation", "ObservationCount"),
+    ("TimeSeries", "TimeSeriesCount"),
+)
+
 _LOCK_SQL = """
 SELECT COUNT(*) AS Total, COUNTIF(LockOwner IS NOT NULL) AS Held,
        MIN(AcquiredTimestamp) AS OldestAcquired
 FROM IngestionLock
+""".strip()
+
+# Only asked when the lock is held, so the common case stays one round trip.
+_LOCK_OWNER_SQL = """
+SELECT LockOwner FROM IngestionLock
+WHERE LockOwner IS NOT NULL
+ORDER BY AcquiredTimestamp
+LIMIT 1
 """.strip()
 
 
@@ -331,12 +360,68 @@ def _age_minutes(timestamp: str | None, now: datetime | None) -> int | None:
     return int((reference - parsed).total_seconds() // 60)
 
 
+def _age_hours(timestamp: str | None, now: datetime | None) -> float | None:
+    parsed = parse_timestamp(timestamp)
+    if parsed is None:
+        return None
+    reference = now or datetime.now(UTC)
+    return round((reference - parsed).total_seconds() / 3600, 1)
+
+
+def _int_or_none(value) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _count_history(successes: list[dict]) -> list[dict]:
+    """Successful ingestions with their row counts, oldest first."""
+    history = [
+        {
+            "completed_at": row.get("CompletionTimestamp"),
+            **{name: _int_or_none(row.get(column)) for name, column in _HISTORY_COUNTS},
+        }
+        for row in successes
+    ]
+    return list(reversed(history))  # the query reads newest first
+
+
+def _freshness(successes: list[dict], now: datetime | None, max_age_hours: float | None):
+    """(last_success_at, age_hours, note). `note` is non-empty only when the age
+    is judged, which it is only when the operator set a maximum."""
+    last_success_at = successes[0].get("CompletionTimestamp") if successes else None
+    age = _age_hours(last_success_at, now)
+    if max_age_hours is None:
+        return last_success_at, age, ""
+    if last_success_at is None:
+        return last_success_at, age, "no successful ingestion on record"
+    if age is not None and age > max_age_hours:
+        return (
+            last_success_at,
+            age,
+            f"the last successful ingestion was {age:.1f} h ago, "
+            f"above the {max_age_hours:g} h target",
+        )
+    return last_success_at, age, ""
+
+
 def probe_ingestions(ctx, *, now: datetime | None = None, stale_after_hours: float = 6.0) -> Probe:
     spanner = ctx.spanner_factory()
     try:
         rows = spanner.query(_INGESTION_SQL, staleness_seconds=10)
+        successes = spanner.query(_SUCCESS_SQL, staleness_seconds=10)
     finally:
         spanner.close()
+
+    targets = getattr(ctx, "targets", None)
+    max_age = targets.ingestion_max_age_hours if targets is not None else None
+    last_success_at, age_hours, age_note = _freshness(successes, now, max_age)
+    freshness = {
+        "count_history": _count_history(successes),
+        "last_success_at": last_success_at,
+        "age_hours": age_hours,
+    }
 
     try:
         executions = _workflow_executions(ctx)
@@ -365,18 +450,23 @@ def probe_ingestions(ctx, *, now: datetime | None = None, stale_after_hours: flo
     if not ingestions:
         return Probe(
             id="ingestions",
-            status=UNKNOWN,
-            detail=workflow_detail or "no ingestion history yet",
-            data={"ingestions": []},
+            status=DEGRADED if age_note else UNKNOWN,
+            detail=" · ".join(
+                note for note in (workflow_detail or "no ingestion history yet", age_note) if note
+            ),
+            data={"ingestions": [], **freshness},
         )
 
     latest = ingestions[0]
     status_text = (latest["status"] or "").upper()
     workflow_text = (latest["workflow_state"] or "").upper()
-    terminal = status_text in {"SUCCESS", "FAILED", "CANCELLED"}
+    # Both spellings of failure are accepted: the platform has written FAILED,
+    # and FAILURE is the spelling of its own ImportStatus states.
+    failed_statuses = {"FAILED", "FAILURE", "CANCELLED"}
+    terminal = status_text in {"SUCCESS"} | failed_statuses
     notes = [workflow_detail] if workflow_detail else []
 
-    if latest["failure"] or status_text in {"FAILED", "CANCELLED"}:
+    if latest["failure"] or status_text in failed_statuses:
         status = DEGRADED
         notes.insert(
             0, f"the latest ingestion reported {latest['status']} at stage {latest['stage']}"
@@ -412,11 +502,15 @@ def probe_ingestions(ctx, *, now: datetime | None = None, stale_after_hours: flo
     else:
         status = HEALTHY
 
+    if age_note:
+        status = DEGRADED
+        notes.append(age_note)
+
     return Probe(
         id="ingestions",
         status=status,
         detail=" · ".join(notes),
-        data={"ingestions": ingestions},
+        data={"ingestions": ingestions, **freshness},
     )
 
 
@@ -426,11 +520,15 @@ def probe_ingestion_lock(
     spanner = ctx.spanner_factory()
     try:
         rows = spanner.query(_LOCK_SQL, staleness_seconds=10)
+        row = rows[0] if rows else {}
+        held = int(row.get("Held") or 0)
+        owner = None
+        if held:
+            owner_rows = spanner.query(_LOCK_OWNER_SQL, staleness_seconds=10)
+            owner = (owner_rows[0].get("LockOwner") if owner_rows else None) or None
     finally:
         spanner.close()
 
-    row = rows[0] if rows else {}
-    held = int(row.get("Held") or 0)
     oldest = row.get("OldestAcquired")
     age_minutes = _age_minutes(oldest, now)
 
@@ -465,8 +563,160 @@ def probe_ingestion_lock(
             "age_minutes": age_minutes,
             "workflow_active": active,
             "workflow_state_known": not workflow_detail,
+            "lock": {
+                "held": bool(held),
+                "owner": owner,
+                "since": oldest if held else None,
+            },
         },
     )
+
+
+_IMPORT_STATUS_SQL = "SELECT ImportName, State FROM ImportStatus"
+_IMPORT_FAILED = frozenset({"FAILURE", "RETRY"})
+_IMPORT_IN_PROGRESS = frozenset({"PENDING", "RUNNING", "STAGING"})
+
+
+def probe_import_status(ctx) -> Probe:
+    """Per-import state from the platform's own ImportStatus table.
+
+    FAILURE and RETRY degrade: RETRY means the import already failed at least
+    once. PENDING, RUNNING and STAGING are work in progress, not findings.
+    Versions without the table get a plain "not available", as healthy: it is
+    a missing feature of that version, not a fault of this deployment.
+    """
+    spanner = ctx.spanner_factory()
+    try:
+        # Checked first rather than inferred from a failed query, so a real SQL
+        # failure is never mistaken for an absent table or the other way round.
+        if "ImportStatus" not in list_tables(spanner):
+            return Probe(
+                id="import_status",
+                status=HEALTHY,
+                detail="not available on this version",
+                data={"imports": None},
+            )
+        rows = spanner.query(_IMPORT_STATUS_SQL, staleness_seconds=10)
+    finally:
+        spanner.close()
+
+    states = [
+        (str(row.get("ImportName") or ""), str(row.get("State") or "").upper()) for row in rows
+    ]
+    failed = sorted((name, state) for name, state in states if state in _IMPORT_FAILED)
+    in_progress = sum(1 for _name, state in states if state in _IMPORT_IN_PROGRESS)
+    imports = {
+        "total": len(states),
+        "succeeded": sum(1 for _name, state in states if state == "SUCCESS"),
+        "in_progress": in_progress,
+        "failed": [name for name, _state in failed],
+    }
+    if failed:
+        named = ", ".join(f"{name} ({state})" for name, state in failed)
+        phrase = (
+            "import failed or is retrying" if len(failed) == 1 else "imports failed or are retrying"
+        )
+        return Probe(
+            id="import_status",
+            status=DEGRADED,
+            detail=f"{len(failed)} {phrase}: {named}",
+            data={"imports": imports},
+        )
+    detail = ""
+    if in_progress:
+        detail = f"{in_progress} import{'' if in_progress == 1 else 's'} in progress"
+    return Probe(id="import_status", status=HEALTHY, detail=detail, data={"imports": imports})
+
+
+def probe_row_drift(ingestions: Probe, *, max_drop_pct: float) -> Probe:
+    """Pure: compare the last two successful ingestions' row counts.
+
+    Growth is never a finding. A fall bigger than `max_drop_pct` in any of the
+    four tables is: an ingestion that "succeeded" while losing a fifth of the
+    observations is the failure no status column records.
+    """
+    data = ingestions.data or {}
+    if "count_history" not in data:
+        return Probe(
+            id="row_drift",
+            status=UNKNOWN,
+            detail="the ingestion history could not be read",
+            data={"drops": {}},
+        )
+    history = data["count_history"]
+    if len(history) < 2:
+        return Probe(
+            id="row_drift",
+            status=HEALTHY,
+            detail="fewer than two successful ingestions to compare",
+            data={"drops": {}},
+        )
+    previous, latest = history[-2], history[-1]
+    drops: dict[str, float] = {}
+    compared = 0
+    for name, _column in _HISTORY_COUNTS:
+        before, after = previous.get(name), latest.get(name)
+        if before is None or after is None or before <= 0:
+            continue
+        compared += 1
+        fell = round((before - after) / before * 100, 1)
+        if fell > max_drop_pct:
+            drops[name] = fell
+    if not compared:
+        return Probe(
+            id="row_drift",
+            status=HEALTHY,
+            detail="row counts are not recorded by this platform version; not judged",
+            data={"drops": {}},
+        )
+    if drops:
+        named = ", ".join(f"{name} fell {pct:.1f} %" for name, pct in drops.items())
+        return Probe(
+            id="row_drift",
+            status=DEGRADED,
+            detail=f"since the previous successful ingestion: {named}, "
+            f"above the {max_drop_pct:g} % target",
+            data={"drops": drops},
+        )
+    return Probe(id="row_drift", status=HEALTHY, data={"drops": {}})
+
+
+def probe_pending_uploads(data_sources: Probe, ingestions: Probe) -> Probe:
+    """Pure: sources whose input changed after the last successful ingestion.
+
+    That input is uploaded but not yet served. Before the first success, every
+    source with any input is pending. Either side unreadable means unknown: an
+    empty list here would read as "nothing waiting", which is a claim.
+    """
+    sources = (data_sources.data or {}).get("sources")
+    ingestion_data = ingestions.data or {}
+    if not sources or "last_success_at" not in ingestion_data:
+        return Probe(
+            id="pending_uploads",
+            status=UNKNOWN,
+            detail="needs both the source listing and the ingestion history",
+            data={"pending": []},
+        )
+    last_success = parse_timestamp(ingestion_data["last_success_at"])
+    pending = []
+    for source in sources:
+        updated = parse_timestamp(source.get("last_updated"))
+        if updated is None:
+            continue
+        if last_success is None or updated > last_success:
+            pending.append({"prefix": source.get("prefix"), "last_updated": source["last_updated"]})
+    if not pending:
+        return Probe(id="pending_uploads", status=HEALTHY, data={"pending": []})
+    names = ", ".join(str(item["prefix"]) for item in pending)
+    if last_success is None:
+        detail = f"no successful ingestion yet; input waiting under: {names}"
+    elif len(pending) == 1:
+        detail = f"1 source has input newer than the last successful ingestion: {names}"
+    else:
+        detail = (
+            f"{len(pending)} sources have input newer than the last successful ingestion: {names}"
+        )
+    return Probe(id="pending_uploads", status=DEGRADED, detail=detail, data={"pending": pending})
 
 
 _STORAGE = "https://storage.googleapis.com/storage/v1"
