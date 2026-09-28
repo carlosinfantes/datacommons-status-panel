@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc.6] - 2026-09-28
+
+### Added
+
+- The page shows which panel build is serving: `dc-status <version> · <commit>`
+  in the footer, linking to the release notes and the commit (#4). The
+  document carries it as `panel: { version, commit, source }`, set at image
+  build time by the release workflow and recorded as OCI labels.
+
+### Changed
+
+- The bar names the platform version `DCP <version>`, so it is not mistaken for
+  the panel's.
+
 ## [1.0.0-rc.5] - 2026-09-28
 
 ### Fixed
@@ -140,7 +154,8 @@ The v1 redesign: one panel per deployment, answering four questions. See the
   frame-ancestors 'none'` and `Referrer-Policy: no-referrer`; `/api/*`
   responses carry `Cache-Control: no-store`.
 
-[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.5...HEAD
+[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.6...HEAD
+[1.0.0-rc.6]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.5...v1.0.0-rc.6
 [1.0.0-rc.5]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.4...v1.0.0-rc.5
 [1.0.0-rc.4]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.3...v1.0.0-rc.4
 [1.0.0-rc.3]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.2...v1.0.0-rc.3

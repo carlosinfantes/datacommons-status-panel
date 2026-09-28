@@ -32,9 +32,21 @@ RUN useradd --uid 1001 --create-home --shell /usr/sbin/nologin app
 WORKDIR /app
 COPY --from=build --chown=1001:1001 /app /app
 
+# Which build this is, shown on the page. The release workflow passes the tag,
+# commit and repository; a local build keeps the package version.
+ARG VERSION=""
+ARG REVISION=""
+ARG SOURCE=""
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.source="${SOURCE}"
+
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
-    PORT=8080
+    PORT=8080 \
+    DCS_BUILD_VERSION="${VERSION}" \
+    DCS_BUILD_COMMIT="${REVISION}" \
+    DCS_BUILD_SOURCE="${SOURCE}"
 
 USER 1001
 EXPOSE 8080

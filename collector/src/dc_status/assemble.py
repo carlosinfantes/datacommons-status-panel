@@ -26,6 +26,7 @@ from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
+from .build import build_info
 from .config import EnvConfig
 from .console import console_url
 from .model import DIMENSION_OF, DIMENSIONS, HEALTHY, UNKNOWN, Probe, ProbeContext, worst
@@ -354,6 +355,7 @@ def _document(
             "project_id": config.project_id,
             "region": config.region,
         },
+        "panel": build_info(),
         "targets": config.targets.to_dict(),
         "dimensions": dimensions,
         "probes": [probe.to_dict() for probe in ordered],

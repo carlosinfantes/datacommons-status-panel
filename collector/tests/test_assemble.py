@@ -85,6 +85,11 @@ def test_the_document_is_schema_version_2_with_the_deployment_and_its_targets():
     assert document["targets"] == _config().targets.to_dict()
 
 
+def test_the_document_names_the_panel_build_that_produced_it():
+    document = _collect((_spec("dc_api", HEALTHY),))
+    assert set(document["panel"]) == {"version", "commit", "source"}
+
+
 def test_dimensions_come_in_a_fixed_order_and_list_their_probes():
     document = _collect((_spec("dc_api", HEALTHY),))
     assert [d["id"] for d in document["dimensions"]] == [

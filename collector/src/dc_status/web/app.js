@@ -1694,7 +1694,8 @@ function watchWidth() {
 function renderBar(snapshot) {
   const deployment = snapshot.deployment || {};
   doc.getElementById("deployment").textContent = deploymentLabel(snapshot);
-  doc.getElementById("version").textContent = deployment.dcp_version ? `v${deployment.dcp_version}` : "";
+  // Named, because the footer now carries a second version: the panel's own.
+  doc.getElementById("version").textContent = deployment.dcp_version ? `DCP ${deployment.dcp_version}` : "";
   doc.title = `${deploymentLabel(snapshot)} · ${STATUS[statusOf(snapshot.overall)].label} — Data Commons status`;
 }
 
@@ -1717,6 +1718,54 @@ function renderAge() {
   host.dataset.stale = String(elapsed > STALE_AFTER_MS);
 }
 
+/* ---------- the panel's own build ---------- */
+
+// "dc-status 1.0.0-rc.6 · b630f5d6c9eb", the version linking to its release notes
+// and the commit to its source, when the image says where it was built from.
+function httpsUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" ? parsed.href.replace(/\/$/, "") : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function buildLink(href, text) {
+  const link = element("a", "footnote__link", text);
+  link.href = href;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  return link;
+}
+
+function renderBuild(snapshot) {
+  const host = doc.getElementById("build");
+  const panel = snapshot.panel || {};
+  host.replaceChildren();
+  if (!panel.version) {
+    host.hidden = true;
+    return;
+  }
+  const source = panel.source ? httpsUrl(panel.source) : null;
+  host.append(doc.createTextNode("dc-status "));
+  const version = element("span", "footnote__figure", panel.version);
+  host.append(source ? buildLink(`${source}/releases/tag/v${panel.version}`, "") : version);
+  if (source) host.lastChild.append(version);
+  if (panel.commit) {
+    host.append(doc.createTextNode(" · "));
+    const commit = element("span", "footnote__figure", panel.commit);
+    if (source) {
+      const link = buildLink(`${source}/commit/${panel.commit}`, "");
+      link.append(commit);
+      host.append(link);
+    } else {
+      host.append(commit);
+    }
+  }
+  host.hidden = false;
+}
+
 /* ---------- render ---------- */
 
 function render(snapshot) {
@@ -1724,6 +1773,7 @@ function render(snapshot) {
   const verdict = verdictOf(snapshot);
   setVerdict(verdict.headline, verdict.check, verdict.cause);
   renderBar(snapshot);
+  renderBuild(snapshot);
   renderTiles(snapshot);
   renderFindings(snapshot);
   renderDimensions(snapshot);

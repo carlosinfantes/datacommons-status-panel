@@ -142,6 +142,8 @@ single-flight: concurrent requests share one collection.
   "overall": "degraded",                 // worst dimension
   "deployment": { "id": "prod", "label": "Production", "dcp_version": "1.1.4",
                   "project_id": "example-project", "region": "us-central1" },
+  "panel": { "version": "1.0.0-rc.6", "commit": "b630f5d6c9eb",     // set at image build
+             "source": "https://github.com/carlosinfantes/datacommons-status-panel" },
   "targets": { "availability_pct": 99.5, "latency_p95_ms": 1000, "run_cpu_pct": 80,
                "run_memory_pct": 80, "spanner_cpu_pct": 65, "min_requests_per_hour": 100,
                "ingestion_max_age_hours": null, "max_row_drop_pct": 10 },

@@ -10,6 +10,11 @@
     "project_id": "example-project",
     "region": "us-central1"
   },
+  "panel": {
+    "version": "1.0.0-rc.6",
+    "commit": "b630f5d6c9eb",
+    "source": "https://github.com/carlosinfantes/datacommons-status-panel"
+  },
   "targets": {
     "availability_pct": 99.5,
     "latency_p95_ms": 1000,
