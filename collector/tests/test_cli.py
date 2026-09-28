@@ -40,14 +40,14 @@ def test_prints_the_document_as_json(tmp_path, monkeypatch, capsys):
         "collect_status",
         lambda config, clients, cache: {
             "overall": HEALTHY,
-            "environments": [{"id": config.env_id}],
+            "deployment": {"id": config.env_id},
         },
     )
 
     assert cli.main(["--env-file", str(env_file)]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["overall"] == HEALTHY
-    assert payload["environments"][0]["id"] == "staging"
+    assert payload["deployment"]["id"] == "staging"
 
 
 def test_a_configuration_error_exits_nonzero_with_a_message(tmp_path, capsys):
