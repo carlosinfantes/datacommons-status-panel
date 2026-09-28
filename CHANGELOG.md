@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc.5] - 2026-09-28
+
+### Fixed
+
+Found by the first deployment against real data:
+
+- `data_sources` failed on Spanner: `ROWS` is a reserved keyword and was used as
+  an alias. Every statement is now checked against the reserved list.
+- The platform version was empty when the live revision records its image by
+  digest only; it is now read from the service template when the digests match.
+- A folder is matched to its provenance by the provenance's last path segment,
+  ignoring case and separators (`iom-dtm` and `UNDATA/P/IOM_DTM`).
+- GCS folder placeholder objects are no longer counted as input files.
+
 ## [1.0.0-rc.4] - 2026-09-28
 
 ### Added
@@ -126,7 +140,8 @@ The v1 redesign: one panel per deployment, answering four questions. See the
   frame-ancestors 'none'` and `Referrer-Policy: no-referrer`; `/api/*`
   responses carry `Cache-Control: no-store`.
 
-[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.4...HEAD
+[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.5...HEAD
+[1.0.0-rc.5]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.4...v1.0.0-rc.5
 [1.0.0-rc.4]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.3...v1.0.0-rc.4
 [1.0.0-rc.3]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.2...v1.0.0-rc.3
 [1.0.0-rc.2]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.1...v1.0.0-rc.2
