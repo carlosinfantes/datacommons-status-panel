@@ -137,3 +137,30 @@ run "rejects_a_non_service_account_email" {
   expect_failures = [var.service_account_email]
 }
 
+
+
+run "routes_egress_through_a_connector" {
+  command = plan
+
+  variables {
+    vpc_access = { connector = "projects/example-project/locations/us-central1/connectors/example-conn" }
+  }
+
+  assert {
+    condition     = google_cloud_run_v2_service.status.template[0].vpc_access[0].egress == "PRIVATE_RANGES_ONLY"
+    error_message = "Egress defaults to private ranges only."
+  }
+}
+
+run "rejects_both_connector_and_network" {
+  command = plan
+
+  variables {
+    vpc_access = {
+      connector = "projects/example-project/locations/us-central1/connectors/example-conn"
+      network   = "example-vpc"
+    }
+  }
+
+  expect_failures = [var.vpc_access]
+}

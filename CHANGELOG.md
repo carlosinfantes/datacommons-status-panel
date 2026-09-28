@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc.4] - 2026-09-28
+
+### Added
+
+- `vpc_access`: route the collector's egress through an existing Serverless VPC
+  Access connector or Direct VPC egress (`PRIVATE_RANGES_ONLY` by default).
+  Required where `constraints/run.allowedVPCEgress` is enforced.
+
 ## [1.0.0-rc.3] - 2026-09-28
 
 ### Added
@@ -118,7 +126,8 @@ The v1 redesign: one panel per deployment, answering four questions. See the
   frame-ancestors 'none'` and `Referrer-Policy: no-referrer`; `/api/*`
   responses carry `Cache-Control: no-store`.
 
-[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.3...HEAD
+[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.4...HEAD
+[1.0.0-rc.4]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.3...v1.0.0-rc.4
 [1.0.0-rc.3]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.2...v1.0.0-rc.3
 [1.0.0-rc.2]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/carlosinfantes/datacommons-status-panel/releases/tag/v1.0.0-rc.1

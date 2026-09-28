@@ -204,6 +204,7 @@ The module never sets these.
 | `create_ghcr_remote` | `false` | Create an Artifact Registry remote repository with `https://ghcr.io` upstream. |
 | `ghcr_remote_repository_id` | `<instance_name>-ghcr` | ID of that repository (`ghcr` when `instance_name` is empty). |
 | `ghcr_image_path` | `carlosinfantes/dc-status` | Image path on GHCR, for forks. |
+| `vpc_access` | none | VPC egress: `{ connector = "projects/…/connectors/…" }` or `{ network, subnetwork }`, with `egress` (`PRIVATE_RANGES_ONLY` by default). Needed where `constraints/run.allowedVPCEgress` is enforced. |
 | `service_account_email` | none | Run as an existing service account instead of creating one. Use it when your deployer gets `actAs` per service account (see below). |
 | `cpu`, `memory` | `1`, `512Mi` | Container limits. |
 | `min_instances`, `max_instances` | `0`, `2` | Scaling. Zero minimum instances costs nothing at rest. |

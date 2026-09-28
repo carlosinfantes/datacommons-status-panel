@@ -74,6 +74,26 @@ resource "google_cloud_run_v2_service" "status" {
       max_instance_count = var.max_instances
     }
 
+    # Optional: organisations that enforce constraints/run.allowedVPCEgress reject
+    # a service with no VPC egress at all. The panel only calls Google APIs and the
+    # deployment's public endpoints, so PRIVATE_RANGES_ONLY is enough: private
+    # ranges go through the VPC, everything else leaves directly.
+    dynamic "vpc_access" {
+      for_each = var.vpc_access == null ? [] : [var.vpc_access]
+      content {
+        connector = vpc_access.value.connector
+        egress    = vpc_access.value.egress
+
+        dynamic "network_interfaces" {
+          for_each = vpc_access.value.network == null ? [] : [vpc_access.value]
+          content {
+            network    = network_interfaces.value.network
+            subnetwork = network_interfaces.value.subnetwork
+          }
+        }
+      }
+    }
+
     containers {
       image = var.image
 

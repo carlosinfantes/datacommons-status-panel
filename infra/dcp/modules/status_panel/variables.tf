@@ -330,3 +330,25 @@ variable "service_account_email" {
   }
 }
 
+
+
+variable "vpc_access" {
+  description = "VPC egress for the collector: either an existing Serverless VPC Access connector (projects/<p>/locations/<r>/connectors/<name>) or Direct VPC egress (network + subnetwork). Needed where constraints/run.allowedVPCEgress is enforced. Null leaves the service without VPC egress."
+  type = object({
+    connector  = optional(string)
+    network    = optional(string)
+    subnetwork = optional(string)
+    egress     = optional(string, "PRIVATE_RANGES_ONLY")
+  })
+  default = null
+
+  validation {
+    condition     = var.vpc_access == null || contains(["ALL_TRAFFIC", "PRIVATE_RANGES_ONLY"], try(var.vpc_access.egress, ""))
+    error_message = "vpc_access.egress must be ALL_TRAFFIC or PRIVATE_RANGES_ONLY."
+  }
+
+  validation {
+    condition     = var.vpc_access == null || ((try(var.vpc_access.connector, null) != null) != (try(var.vpc_access.network, null) != null))
+    error_message = "vpc_access takes either connector or network (with subnetwork), not both and not neither."
+  }
+}
