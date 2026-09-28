@@ -155,9 +155,10 @@ def probe_version_consistency(service: Probe, schema: Probe) -> Probe:
 
 
 _COUNT_TIMEOUT_SECONDS = 8.0
+COUNTS_BUDGET_SECONDS = 20.0
 
 
-def probe_counts(ctx, *, budget_seconds: float = 20.0, workers: int = 4) -> Probe:
+def probe_counts(ctx, *, budget_seconds: float = COUNTS_BUDGET_SECONDS, workers: int = 4) -> Probe:
     started = time.monotonic()
     schema_session = ctx.spanner_factory()
     try:

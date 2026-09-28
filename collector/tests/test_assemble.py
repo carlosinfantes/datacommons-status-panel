@@ -1,10 +1,12 @@
 import threading
 from datetime import datetime, timezone
 
-from dc_status.assemble import ProbeSpec, collect_all, collect_self
+from dc_status.assemble import PROBES, ProbeSpec, _budget_ms, collect_all, collect_self
 from dc_status.cache import TTLCache
 from dc_status.config import EnvConfig, PeerConfig
 from dc_status.model import DEGRADED, DOWN, HEALTHY, UNKNOWN, Probe
+from dc_status.probes import COUNTS_BUDGET_SECONDS
+from dc_status.rest import PUBLIC_TIMEOUT_SECONDS
 
 NOW = datetime(2026, 8, 5, 18, 0, tzinfo=timezone.utc)
 
@@ -164,6 +166,67 @@ def test_a_peer_that_answers_without_an_overall_does_not_blank_the_page():
     assert local["overall"] == HEALTHY
     assert local["probes"]
     assert remote["overall"] == UNKNOWN
+
+
+def test_every_probe_reports_the_budget_it_was_measured_against():
+    # elapsed_ms alone cannot say whether a check is comfortable or one second from
+    # being dropped, so the deadline travels with it.
+    probes = (_spec("dc_api", HEALTHY), _spec("spanner", HEALTHY))
+    document = collect_self(_config(), _clients(), TTLCache(), now=NOW, probes=probes)
+    emitted = document["environments"][0]["probes"]
+    assert [probe["budget_ms"] for probe in emitted] == [25000, 25000]
+
+
+def test_a_probe_reports_whichever_deadline_actually_binds_it():
+    # dc_api and frontend give up at the public client's 8 s and counts at its own
+    # 20 s, all tighter than the pool's 25 s. Reporting 25 s for those would draw a
+    # check one second from timing out as comfortably inside its budget.
+    by_id = {spec.id: spec for spec in PROBES}
+    assert _budget_ms(by_id["dc_api"]) == int(PUBLIC_TIMEOUT_SECONDS * 1000)
+    assert _budget_ms(by_id["frontend"]) == int(PUBLIC_TIMEOUT_SECONDS * 1000)
+    assert _budget_ms(by_id["counts"]) == int(COUNTS_BUDGET_SECONDS * 1000)
+    # The rest retry up to 30 s of HTTP, so the pool's deadline is what binds them.
+    assert _budget_ms(by_id["spanner"]) == 25000
+    assert _budget_ms(by_id["schema"]) == 25000
+
+
+def test_a_derived_check_reports_no_budget():
+    # version_consistency does no I/O and is never raced against the clock, so it
+    # has no budget to report and the page must not draw it one.
+    probes = (_spec("dc_service", HEALTHY, data={"dcp_version": "1.1.0"}),
+              _spec("schema", HEALTHY, data={"tables": ["TimeSeries"]}))
+    document = collect_self(_config(), _clients(), TTLCache(), now=NOW, probes=probes)
+    derived = next(
+        probe
+        for probe in document["environments"][0]["probes"]
+        if probe["id"] == "version_consistency"
+    )
+    assert derived["budget_ms"] == 0
+
+
+def test_a_probe_that_outlasts_its_deadline_reports_the_whole_budget_spent(monkeypatch):
+    # A dropped probe is the slowest possible probe. Leaving elapsed at zero would
+    # render it as the fastest one on the page.
+    monkeypatch.setattr("dc_status.assemble._PROBE_DEADLINE_SECONDS", 0.2)
+    release = threading.Event()
+
+    def run(_ctx):
+        release.wait(timeout=5)
+        return Probe(id="dc_api", status=HEALTHY)
+
+    try:
+        document = collect_self(
+            _config(), _clients(), TTLCache(), now=NOW, probes=(ProbeSpec(id="dc_api", run=run),)
+        )
+    finally:
+        release.set()  # let the straggler finish before the test process exits
+
+    probe = document["environments"][0]["probes"][0]
+    assert probe["status"] == UNKNOWN
+    assert probe["budget_ms"] == 200
+    assert probe["elapsed_ms"] == 200
+    assert "did not answer" in probe["detail"]
+    assert document["partial"] is True
 
 
 def test_a_peer_that_outlasts_the_budget_does_not_hold_up_the_probe():

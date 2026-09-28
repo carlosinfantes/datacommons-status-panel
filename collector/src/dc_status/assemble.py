@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable
@@ -11,6 +12,7 @@ from typing import Callable
 from .config import EnvConfig, PeerConfig
 from .model import UNKNOWN, Probe, ProbeContext, worst
 from .probes import (
+    COUNTS_BUDGET_SECONDS,
     probe_counts,
     probe_data_sources,
     probe_dc_api,
@@ -22,6 +24,7 @@ from .probes import (
     probe_spanner,
     probe_version_consistency,
 )
+from .rest import PUBLIC_TIMEOUT_SECONDS
 from .sanitize import sanitize
 
 _PROBE_DEADLINE_SECONDS = 25.0
@@ -36,6 +39,11 @@ class ProbeSpec:
     # Name of an EnvConfig field whose value overrides ttl_seconds, for the
     # probes whose caching is operator-tunable.
     ttl_from_config: str = ""
+    # The probe's own inner deadline, when it is tighter than the pool's. Reporting
+    # the pool's 25 s for a check that actually gives up at 8 s would render a probe
+    # one second from timing out as comfortably within budget — the exact reading
+    # this figure exists to prevent. Zero means the pool deadline is what binds.
+    budget_seconds: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -47,15 +55,20 @@ class Clients:
 
 # S1-S4 and S6-S10. S5 (version_consistency) is derived after these complete.
 PROBES: tuple[ProbeSpec, ...] = (
-    ProbeSpec("dc_api", probe_dc_api),
+    ProbeSpec("dc_api", probe_dc_api, budget_seconds=PUBLIC_TIMEOUT_SECONDS),
     ProbeSpec("dc_service", probe_dc_service),
     ProbeSpec("spanner", probe_spanner),
     ProbeSpec("schema", probe_schema, ttl_from_config="schema_cache_ttl_seconds"),
-    ProbeSpec("counts", probe_counts, ttl_from_config="counts_cache_ttl_seconds"),
+    ProbeSpec(
+        "counts",
+        probe_counts,
+        ttl_from_config="counts_cache_ttl_seconds",
+        budget_seconds=COUNTS_BUDGET_SECONDS,
+    ),
     ProbeSpec("ingestions", probe_ingestions),
     ProbeSpec("ingestion_lock", probe_ingestion_lock),
     ProbeSpec("data_sources", probe_data_sources, ttl_seconds=300),
-    ProbeSpec("frontend", probe_frontend),
+    ProbeSpec("frontend", probe_frontend, budget_seconds=PUBLIC_TIMEOUT_SECONDS),
 )
 
 
@@ -85,6 +98,14 @@ def _ttl_for(spec: ProbeSpec, config: EnvConfig) -> float:
     return spec.ttl_seconds
 
 
+def _budget_ms(spec: ProbeSpec | None = None) -> int:
+    """The deadline that actually binds this probe: its own, or the pool's."""
+    limit = _PROBE_DEADLINE_SECONDS
+    if spec is not None and spec.budget_seconds:
+        limit = min(limit, spec.budget_seconds)
+    return int(limit * 1000)
+
+
 def _run_one(spec: ProbeSpec, ctx: ProbeContext, config: EnvConfig, cache) -> Probe:
     def produce() -> Probe:
         started = time.monotonic()
@@ -96,6 +117,7 @@ def _run_one(spec: ProbeSpec, ctx: ProbeContext, config: EnvConfig, cache) -> Pr
                 status=UNKNOWN,
                 detail=sanitize(exc),
                 elapsed_ms=int((time.monotonic() - started) * 1000),
+                budget_ms=_budget_ms(spec),
             )
         elapsed = int((time.monotonic() - started) * 1000)
         return Probe(
@@ -103,6 +125,7 @@ def _run_one(spec: ProbeSpec, ctx: ProbeContext, config: EnvConfig, cache) -> Pr
             status=probe.status,
             detail=probe.detail,
             elapsed_ms=elapsed,
+            budget_ms=_budget_ms(spec),
             data=probe.data,
         )
 
@@ -119,14 +142,34 @@ def collect_self(
 ) -> dict:
     ctx = _context(config, clients)
     results: dict[str, Probe] = {}
+    spec_by_id = {spec.id: spec for spec in probes}
     pool = ThreadPoolExecutor(max_workers=max(1, len(probes)))
     try:
         futures = {spec.id: pool.submit(_run_one, spec, ctx, config, cache) for spec in probes}
         for probe_id, future in futures.items():
             try:
                 results[probe_id] = future.result(timeout=_PROBE_DEADLINE_SECONDS)
+            except FuturesTimeout:
+                # It did not merely fail, it used every millisecond it was given and
+                # was dropped. Recording elapsed as the full budget is the honest
+                # reading; leaving it at zero would report the slowest possible
+                # probe as the fastest.
+                results[probe_id] = Probe(
+                    id=probe_id,
+                    status=UNKNOWN,
+                    detail=f"the check did not answer within {_PROBE_DEADLINE_SECONDS:g} s",
+                    # The pool's clock is what dropped it, whatever its own inner
+                    # limit was, so that is the budget it actually spent.
+                    elapsed_ms=_budget_ms(),
+                    budget_ms=_budget_ms(),
+                )
             except Exception as exc:
-                results[probe_id] = Probe(id=probe_id, status=UNKNOWN, detail=sanitize(exc))
+                results[probe_id] = Probe(
+                    id=probe_id,
+                    status=UNKNOWN,
+                    detail=sanitize(exc),
+                    budget_ms=_budget_ms(spec_by_id.get(probe_id)),
+                )
     finally:
         # NOT a `with` block, for the same reason as probe_counts: __exit__ calls
         # shutdown(wait=True), which waits for the probes the deadline just gave

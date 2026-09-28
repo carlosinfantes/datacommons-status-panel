@@ -51,6 +51,12 @@ class Probe:
     status: str
     detail: str = ""
     elapsed_ms: int = 0
+    # How long this probe was allowed to take. `elapsed_ms` on its own says a check
+    # took 10 s without saying whether that is comfortable or one second from being
+    # dropped; the page needs both numbers to show the difference. Zero means the
+    # probe was never raced against a clock — a derived check like
+    # version_consistency does no I/O, so it has no budget to report.
+    budget_ms: int = 0
     data: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -59,6 +65,7 @@ class Probe:
             "status": self.status,
             "detail": sanitize(self.detail),
             "elapsed_ms": self.elapsed_ms,
+            "budget_ms": self.budget_ms,
             "data": self.data,
         }
 

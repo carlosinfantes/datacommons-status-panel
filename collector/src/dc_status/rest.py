@@ -82,10 +82,13 @@ class RestClient:
         return sanitize(detail or f"HTTP {response.status_code}")
 
 
+PUBLIC_TIMEOUT_SECONDS = 8.0
+
+
 class PublicClient:
     """Unauthenticated HTTP, for probing public endpoints (S1, S10)."""
 
-    def __init__(self, session=None, *, timeout: float = 8.0):
+    def __init__(self, session=None, *, timeout: float = PUBLIC_TIMEOUT_SECONDS):
         if session is None:
             import requests
 
