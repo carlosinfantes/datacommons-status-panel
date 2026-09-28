@@ -1,0 +1,625 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-09-28T13:00:00Z",
+  "partial": false,
+  "overall": "degraded",
+  "deployment": {
+    "id": "prod",
+    "label": "Production",
+    "dcp_version": "1.1.4",
+    "project_id": "example-project",
+    "region": "us-central1"
+  },
+  "targets": {
+    "availability_pct": 99.5,
+    "latency_p95_ms": 1000,
+    "run_cpu_pct": 80,
+    "run_memory_pct": 80,
+    "spanner_cpu_pct": 65,
+    "min_requests_per_hour": 100,
+    "ingestion_max_age_hours": null,
+    "max_row_drop_pct": 10
+  },
+  "dimensions": [
+    {
+      "id": "system",
+      "status": "healthy",
+      "probes": [
+        "dc_api",
+        "dc_service",
+        "spanner",
+        "schema",
+        "version_consistency",
+        "frontend"
+      ]
+    },
+    {
+      "id": "experience",
+      "status": "degraded",
+      "probes": [
+        "errors",
+        "latency",
+        "saturation"
+      ]
+    },
+    {
+      "id": "quality",
+      "status": "degraded",
+      "probes": [
+        "counts",
+        "data_sources",
+        "import_status",
+        "row_drift"
+      ]
+    },
+    {
+      "id": "freshness",
+      "status": "degraded",
+      "probes": [
+        "ingestions",
+        "ingestion_lock",
+        "pending_uploads"
+      ]
+    }
+  ],
+  "probes": [
+    {
+      "id": "dc_api",
+      "dimension": "system",
+      "status": "healthy",
+      "detail": "",
+      "elapsed_ms": 412,
+      "budget_ms": 8000,
+      "console_url": "https://console.cloud.google.com/run/detail/us-central1/example-dc-service/metrics?project=example-project",
+      "data": {}
+    },
+    {
+      "id": "dc_service",
+      "dimension": "system",
+      "status": "healthy",
+      "detail": "",
+      "elapsed_ms": 690,
+      "budget_ms": 25000,
+      "console_url": "https://console.cloud.google.com/run/detail/us-central1/example-dc-service/revisions?project=example-project",
+      "data": {}
+    },
+    {
+      "id": "spanner",
+      "dimension": "system",
+      "status": "healthy",
+      "detail": "",
+      "elapsed_ms": 540,
+      "budget_ms": 25000,
+      "console_url": "https://console.cloud.google.com/spanner/instances/example-instance/details/databases?project=example-project",
+      "data": {}
+    },
+    {
+      "id": "schema",
+      "dimension": "system",
+      "status": "healthy",
+      "detail": "",
+      "elapsed_ms": 880,
+      "budget_ms": 25000,
+      "console_url": "https://console.cloud.google.com/spanner/instances/example-instance/databases/example-db/details/tables?project=example-project",
+      "data": {}
+    },
+    {
+      "id": "version_consistency",
+      "dimension": "system",
+      "status": "healthy",
+      "detail": "",
+      "elapsed_ms": 0,
+      "budget_ms": 0,
+      "console_url": null,
+      "data": {}
+    },
+    {
+      "id": "frontend",
+      "dimension": "system",
+      "status": "healthy",
+      "detail": "",
+      "elapsed_ms": 230,
+      "budget_ms": 8000,
+      "console_url": null,
+      "data": {}
+    },
+    {
+      "id": "errors",
+      "dimension": "experience",
+      "status": "healthy",
+      "detail": "",
+      "elapsed_ms": 820,
+      "budget_ms": 25000,
+      "console_url": "https://console.cloud.google.com/run/detail/us-central1/example-dc-service/metrics?project=example-project",
+      "data": {}
+    },
+    {
+      "id": "latency",
+      "dimension": "experience",
+      "status": "healthy",
+      "detail": "",
+      "elapsed_ms": 790,
+      "budget_ms": 25000,
+      "console_url": "https://console.cloud.google.com/run/detail/us-central1/example-dc-service/metrics?project=example-project",
+      "data": {}
+    },
+    {
+      "id": "saturation",
+      "dimension": "experience",
+      "status": "degraded",
+      "detail": "Spanner high-priority CPU at 71 %, above the 65 % target",
+      "elapsed_ms": 860,
+      "budget_ms": 25000,
+      "console_url": "https://console.cloud.google.com/spanner/instances/example-instance/details/monitoring?project=example-project",
+      "data": {}
+    },
+    {
+      "id": "counts",
+      "dimension": "quality",
+      "status": "healthy",
+      "detail": "",
+      "elapsed_ms": 11200,
+      "budget_ms": 20000,
+      "console_url": "https://console.cloud.google.com/spanner/instances/example-instance/databases/example-db/details/tables?project=example-project",
+      "data": {}
+    },
+    {
+      "id": "data_sources",
+      "dimension": "quality",
+      "status": "degraded",
+      "detail": "no input files under: trade",
+      "elapsed_ms": 3900,
+      "budget_ms": 25000,
+      "console_url": "https://console.cloud.google.com/storage/browser/example-artifacts/ingestion/input?project=example-project",
+      "data": {}
+    },
+    {
+      "id": "import_status",
+      "dimension": "quality",
+      "status": "healthy",
+      "detail": "",
+      "elapsed_ms": 610,
+      "budget_ms": 25000,
+      "console_url": "https://console.cloud.google.com/spanner/instances/example-instance/databases/example-db/details/tables?project=example-project",
+      "data": {}
+    },
+    {
+      "id": "row_drift",
+      "dimension": "quality",
+      "status": "healthy",
+      "detail": "",
+      "elapsed_ms": 0,
+      "budget_ms": 0,
+      "console_url": null,
+      "data": {}
+    },
+    {
+      "id": "ingestions",
+      "dimension": "freshness",
+      "status": "healthy",
+      "detail": "",
+      "elapsed_ms": 1450,
+      "budget_ms": 25000,
+      "console_url": "https://console.cloud.google.com/workflows/workflow/us-central1/example-ingestion/executions?project=example-project",
+      "data": {}
+    },
+    {
+      "id": "ingestion_lock",
+      "dimension": "freshness",
+      "status": "healthy",
+      "detail": "",
+      "elapsed_ms": 620,
+      "budget_ms": 25000,
+      "console_url": "https://console.cloud.google.com/spanner/instances/example-instance/databases/example-db/details/tables?project=example-project",
+      "data": {}
+    },
+    {
+      "id": "pending_uploads",
+      "dimension": "freshness",
+      "status": "degraded",
+      "detail": "2 sources have input newer than the last successful ingestion: health, education",
+      "elapsed_ms": 0,
+      "budget_ms": 0,
+      "console_url": "https://console.cloud.google.com/storage/browser/example-artifacts/ingestion/input?project=example-project",
+      "data": {}
+    }
+  ],
+  "signals": {
+    "window_minutes": 60,
+    "step_seconds": 60,
+    "traffic": {
+      "rps": 41.0,
+      "requests": 151757,
+      "series": [
+        41.4,
+        42.4,
+        47.3,
+        44.8,
+        43.8,
+        44.1,
+        39.5,
+        40.6,
+        42.7,
+        46.0,
+        39.5,
+        38.1,
+        34.8,
+        41.4,
+        43.9,
+        37.7,
+        45.2,
+        49.5,
+        48.3,
+        47.2,
+        41.0,
+        35.6,
+        38.5,
+        34.6,
+        33.8,
+        34.0,
+        31.6,
+        35.3,
+        37.3,
+        43.3,
+        43.0,
+        44.3,
+        43.4,
+        44.8,
+        43.1,
+        40.0,
+        46.8,
+        50.8,
+        51.4,
+        50.1,
+        44.7,
+        40.3,
+        38.5,
+        34.7,
+        40.8,
+        40.1,
+        45.0,
+        42.5,
+        47.8,
+        49.6,
+        40.6,
+        37.7,
+        44.3,
+        43.0,
+        48.4,
+        44.6,
+        38.4,
+        41.4,
+        45.0,
+        41.0
+      ]
+    },
+    "errors": {
+      "availability_pct": 99.94,
+      "error_pct": 0.06,
+      "judged": true,
+      "series": [
+        0.017,
+        0.017,
+        0.067,
+        0.081,
+        0.038,
+        0.023,
+        0.002,
+        0,
+        0.035,
+        0.015,
+        0.034,
+        0.036,
+        0.017,
+        0.049,
+        0.02,
+        0.043,
+        0.015,
+        0.023,
+        0.011,
+        0.008,
+        0.062,
+        0.082,
+        0.053,
+        0.083,
+        0.047,
+        0.039,
+        0.072,
+        0.075,
+        0.033,
+        0.079,
+        0.044,
+        0.027,
+        0.058,
+        0.041,
+        0.028,
+        0.003,
+        0,
+        0.02,
+        0.911,
+        0.935,
+        0.931,
+        0.935,
+        0.078,
+        0.065,
+        0.065,
+        0.088,
+        0.048,
+        0.021,
+        0.065,
+        0.085,
+        0.051,
+        0.026,
+        0.055,
+        0.088,
+        0.048,
+        0.085,
+        0.102,
+        0.089,
+        0.067,
+        0.029
+      ]
+    },
+    "latency": {
+      "p50_ms": 180,
+      "p95_ms": 610,
+      "p99_ms": 1400,
+      "judged": true,
+      "series_p95": [
+        527.0,
+        643.0,
+        583.0,
+        631.0,
+        579.0,
+        649.0,
+        651.0,
+        597.0,
+        544.0,
+        610.0,
+        532.0,
+        515.0,
+        563.0,
+        645.0,
+        652.0,
+        596.0,
+        676.0,
+        597.0,
+        515.0,
+        511.0,
+        541.0,
+        490.0,
+        479.0,
+        508.0,
+        562.0,
+        515.0,
+        528.0,
+        631.0,
+        709.0,
+        698.0,
+        697.0,
+        677.0,
+        586.0,
+        512.0,
+        464.0,
+        596.0,
+        638.0,
+        710.0,
+        1284.0,
+        1319.0,
+        1312.0,
+        1353.0,
+        603.0,
+        696.0,
+        585.0,
+        603.0,
+        649.0,
+        705.0,
+        710.0,
+        707.0,
+        721.0,
+        751.0,
+        668.0,
+        678.0,
+        723.0,
+        745.0,
+        676.0,
+        702.0,
+        731.0,
+        695.0
+      ]
+    },
+    "saturation": {
+      "run_cpu_pct": 38,
+      "run_memory_pct": 61,
+      "instances": 3,
+      "max_instances": 6,
+      "spanner_cpu_pct": 71
+    }
+  },
+  "counts": {
+    "Observation": 191870402,
+    "Edge": 7010332,
+    "TimeSeries": 3020114,
+    "Node": 1240870,
+    "KeyValueStore": 51
+  },
+  "count_history": [
+    {
+      "completed_at": "2026-07-30T14:15:00Z",
+      "Node": 1180000,
+      "Edge": 6700000,
+      "Observation": 180000000,
+      "TimeSeries": 2850000
+    },
+    {
+      "completed_at": "2026-08-08T14:15:00Z",
+      "Node": 1189440,
+      "Edge": 6753600,
+      "Observation": 181440000,
+      "TimeSeries": 2872800
+    },
+    {
+      "completed_at": "2026-08-15T14:15:00Z",
+      "Node": 1198880,
+      "Edge": 6807200,
+      "Observation": 182880000,
+      "TimeSeries": 2895600
+    },
+    {
+      "completed_at": "2026-08-22T14:15:00Z",
+      "Node": 1208320,
+      "Edge": 6860800,
+      "Observation": 184320000,
+      "TimeSeries": 2918400
+    },
+    {
+      "completed_at": "2026-08-29T14:15:00Z",
+      "Node": 1217760,
+      "Edge": 6914400,
+      "Observation": 185760000,
+      "TimeSeries": 2941200
+    },
+    {
+      "completed_at": "2026-09-05T14:15:00Z",
+      "Node": 1227200,
+      "Edge": 6968000,
+      "Observation": 187200000,
+      "TimeSeries": 2964000
+    },
+    {
+      "completed_at": "2026-09-15T14:15:00Z",
+      "Node": 1236640,
+      "Edge": 7021600,
+      "Observation": 188640000,
+      "TimeSeries": 2986800
+    },
+    {
+      "completed_at": "2026-09-19T14:15:00Z",
+      "Node": 1246080,
+      "Edge": 7075200,
+      "Observation": 190080000,
+      "TimeSeries": 3009600
+    },
+    {
+      "completed_at": "2026-09-26T14:15:00Z",
+      "Node": 1240870,
+      "Edge": 7010332,
+      "Observation": 191870402,
+      "TimeSeries": 3020114
+    }
+  ],
+  "imports": {
+    "total": 3,
+    "succeeded": 3,
+    "in_progress": 0,
+    "failed": []
+  },
+  "ingestions": [
+    {
+      "creation": "2026-09-26T11:45:00Z",
+      "completion": "2026-09-26T13:00:02Z",
+      "status": "SUCCESS",
+      "stage": "DONE",
+      "failure": false,
+      "execution_seconds": 4502,
+      "imports": 3,
+      "workflow_execution_id": "exec-1790423100",
+      "workflow_state": "SUCCEEDED"
+    },
+    {
+      "creation": "2026-09-19T11:56:00Z",
+      "completion": "2026-09-19T13:00:50Z",
+      "status": "SUCCESS",
+      "stage": "DONE",
+      "failure": false,
+      "execution_seconds": 3890,
+      "imports": 3,
+      "workflow_execution_id": "exec-1789818960",
+      "workflow_state": "SUCCEEDED"
+    },
+    {
+      "creation": "2026-09-15T09:40:00Z",
+      "completion": "2026-09-15T10:48:00Z",
+      "status": "SUCCESS",
+      "stage": "DONE",
+      "failure": false,
+      "execution_seconds": 4080,
+      "imports": 3,
+      "workflow_execution_id": "exec-1789465200",
+      "workflow_state": "SUCCEEDED"
+    },
+    {
+      "creation": "2026-09-14T13:00:00Z",
+      "completion": "2026-09-14T14:26:00Z",
+      "status": "FAILURE",
+      "stage": "IMPORT",
+      "failure": true,
+      "execution_seconds": 5160,
+      "imports": 3,
+      "workflow_execution_id": "exec-1789390800",
+      "workflow_state": "FAILED"
+    }
+  ],
+  "freshness": {
+    "last_success_at": "2026-09-26T13:00:00Z",
+    "age_hours": 48.0,
+    "pending_uploads": [
+      {
+        "prefix": "health",
+        "last_updated": "2026-09-27T17:00:00Z"
+      },
+      {
+        "prefix": "education",
+        "last_updated": "2026-09-28T07:00:00Z"
+      }
+    ],
+    "lock": {
+      "held": false,
+      "owner": null,
+      "since": null
+    }
+  },
+  "data_sources": [
+    {
+      "prefix": "health",
+      "files": 44,
+      "bytes": 912331004,
+      "last_updated": "2026-09-27T17:00:00Z",
+      "rows": 73004118
+    },
+    {
+      "prefix": "labour",
+      "files": 18,
+      "bytes": 402118220,
+      "last_updated": "2026-09-19T13:00:00Z",
+      "rows": 52118330
+    },
+    {
+      "prefix": "education",
+      "files": 29,
+      "bytes": 530002871,
+      "last_updated": "2026-09-28T07:00:00Z",
+      "rows": 41002987
+    },
+    {
+      "prefix": "energy",
+      "files": 9,
+      "bytes": 204551003,
+      "last_updated": "2026-09-08T13:00:00Z",
+      "rows": 22512871
+    },
+    {
+      "prefix": "trade",
+      "files": 0,
+      "bytes": 0,
+      "last_updated": null,
+      "rows": null
+    }
+  ],
+  "unmatched_provenances": [
+    {
+      "provenance": "LEGACY_IMPORT",
+      "rows": 1200000
+    }
+  ]
+}
