@@ -12,9 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import dc_status
 
+terraform {
+  required_version = ">= 1.9"
 
-def test_package_exposes_version():
-    assert isinstance(dc_status.__version__, str)
-    assert dc_status.__version__.count(".") == 2
+  required_providers {
+    google = {
+      source = "hashicorp/google"
+      # Native IAP on Cloud Run v2 (`iap_enabled`) and the IAP Cloud Run IAM
+      # resources are only in recent 7.x releases; this module is tested on 7.x.
+      version = ">= 7.0, < 8.0"
+    }
+  }
+}
