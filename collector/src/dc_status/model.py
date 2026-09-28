@@ -167,3 +167,5 @@ class ProbeContext:
     canary_node: str = "country/GTM"
     canary_name: str = "Guatemala"
     targets: object = None  # config.Targets; None in tests that do not judge
+    monitoring: object = None  # monitoring.MonitoringReader
+    signals_window_minutes: int = 60

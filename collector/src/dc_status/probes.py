@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from urllib.parse import quote
 
+from .console import run_metrics_url, spanner_monitoring_url
 from .model import (
     DEGRADED,
     DOWN,
@@ -919,3 +920,99 @@ def probe_frontend(ctx) -> Probe:
             data={"http_status": code},
         )
     return Probe(id="frontend", status=DEGRADED, detail=f"HTTP {code}", data={"http_status": code})
+
+
+# The three Experience probes judge the `signals` object the document carries,
+# so what the page draws and what was judged are the same numbers (D5). They do
+# no I/O of their own: monitoring.read_signals fetched everything once.
+
+_NOT_JUDGED = "low traffic, not judged"
+
+
+def probe_errors(signals: dict, targets) -> Probe:
+    errors = signals["errors"]
+    window = signals["window_minutes"]
+    if not errors["judged"]:
+        return Probe(id="errors", status=HEALTHY, detail=_NOT_JUDGED)
+    availability = errors["availability_pct"]
+    if availability < targets.availability_pct:
+        return Probe(
+            id="errors",
+            status=DEGRADED,
+            detail=(
+                f"availability {availability:g} % over the last {window} min, "
+                f"below the {targets.availability_pct:g} % target"
+            ),
+        )
+    return Probe(id="errors", status=HEALTHY)
+
+
+def probe_latency(signals: dict, targets) -> Probe:
+    latency = signals["latency"]
+    window = signals["window_minutes"]
+    if not latency["judged"]:
+        return Probe(id="latency", status=HEALTHY, detail=_NOT_JUDGED)
+    p95 = latency["p95_ms"]
+    if p95 is None:
+        # Enough requests to judge, yet no latency distribution: the metric
+        # itself is missing, which is not the same as fast.
+        return Probe(id="latency", status=UNKNOWN, detail="no latency data in the window")
+    if p95 > targets.latency_p95_ms:
+        return Probe(
+            id="latency",
+            status=DEGRADED,
+            detail=(
+                f"p95 latency {p95} ms over the last {window} min, "
+                f"above the {targets.latency_p95_ms:g} ms target"
+            ),
+        )
+    return Probe(id="latency", status=HEALTHY)
+
+
+def _against(label: str, value: float, target: float) -> str:
+    relation = "above" if value > target else "at"
+    return f"{label} at {value:g} %, {relation} the {target:g} % target"
+
+
+def probe_saturation(signals: dict, targets, where) -> Probe:
+    """Any figure at or above its target, or instances at the configured maximum.
+
+    "At" counts: a service pinned exactly at its instance ceiling is already
+    turning requests away. The console link follows the finding, because the
+    page to open for a hot Spanner instance is not the Cloud Run one.
+    """
+    saturation = signals["saturation"]
+    run_findings: list[str] = []
+    spanner_findings: list[str] = []
+    checks = (
+        ("run_cpu_pct", "Cloud Run CPU", targets.run_cpu_pct, run_findings),
+        ("run_memory_pct", "Cloud Run memory", targets.run_memory_pct, run_findings),
+        (
+            "spanner_cpu_pct",
+            "Spanner high-priority CPU",
+            targets.spanner_cpu_pct,
+            spanner_findings,
+        ),
+    )
+    for key, label, target, findings in checks:
+        value = saturation.get(key)
+        if value is not None and value >= target:
+            findings.append(_against(label, value, target))
+    instances, ceiling = saturation.get("instances"), saturation.get("max_instances")
+    if instances is not None and ceiling and instances >= ceiling:
+        run_findings.insert(
+            0, f"{instances} of {ceiling} instances running, the configured maximum"
+        )
+
+    figures = ("run_cpu_pct", "run_memory_pct", "instances", "spanner_cpu_pct")
+    if all(saturation.get(key) is None for key in figures):
+        return Probe(id="saturation", status=UNKNOWN, detail="no saturation data in the window")
+    if not (run_findings or spanner_findings):
+        return Probe(id="saturation", status=HEALTHY)
+    link = run_metrics_url(where) if run_findings else spanner_monitoring_url(where)
+    return Probe(
+        id="saturation",
+        status=DEGRADED,
+        detail=" · ".join(run_findings + spanner_findings),
+        console_url=link,
+    )

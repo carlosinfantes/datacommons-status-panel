@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from .assemble import Clients
 from .config import EnvConfig
+from .monitoring import MonitoringReader
 from .rest import PublicClient, RestClient, build_authorized_session
 from .spanner_sql import SpannerSQL
 
@@ -35,4 +36,9 @@ def build_clients(config: EnvConfig) -> Clients:
             config.spanner_database_id,
         )
 
-    return Clients(rest=rest, public=PublicClient(), spanner_factory=spanner_factory)
+    return Clients(
+        rest=rest,
+        public=PublicClient(),
+        spanner_factory=spanner_factory,
+        monitoring=MonitoringReader(RestClient(session), config.project_id),
+    )

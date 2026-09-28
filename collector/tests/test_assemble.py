@@ -106,7 +106,7 @@ def test_dimensions_come_in_a_fixed_order_and_list_their_probes():
 def test_every_probe_belongs_to_exactly_one_dimension():
     listed = [probe_id for _dimension, ids in DIMENSIONS for probe_id in ids]
     assert len(listed) == len(set(listed))
-    assert {spec.id for spec in PROBES} <= set(listed)
+    assert {spec.id for spec in PROBES} - {"signals"} <= set(listed)
 
 
 def test_a_dimension_is_the_worst_of_its_probes_and_overall_the_worst_dimension():
@@ -361,5 +361,73 @@ def test_row_drift_and_pending_uploads_are_derived_and_lifted():
     }
 
 
-def test_the_production_probe_set_includes_import_status():
-    assert "import_status" in {spec.id for spec in PROBES}
+def test_the_production_probe_set_includes_import_status_and_the_signals_fetch():
+    ids = {spec.id for spec in PROBES}
+    assert "import_status" in ids
+    assert "signals" in ids
+
+
+def _signals_spec(raw=None, boom=None, calls=None):
+    def run(_ctx):
+        if calls is not None:
+            calls.append(1)
+        if boom:
+            raise boom
+        return Probe(id="signals", status=HEALTHY, data={"raw": raw})
+
+    return ProbeSpec(id="signals", run=run)
+
+
+def _raw(requests_per_minute=2400, spanner=0.4):
+    return {
+        "window_minutes": 60,
+        "totals": [float(requests_per_minute)] * 60,
+        "server_errors": [0.0] * 60,
+        "p95_series": [600.0] * 60,
+        "p50": 180.0,
+        "p95": 600.0,
+        "p99": 1200.0,
+        "run_cpu": 0.3,
+        "run_memory": 0.5,
+        "instances": 2.0,
+        "spanner_cpu": spanner,
+    }
+
+
+def test_monitoring_is_read_once_and_feeds_all_three_experience_probes():
+    calls = []
+    probes = (
+        _spec("dc_service", HEALTHY, {"dcp_version": "1.1.4", "max_instances": 6}),
+        _signals_spec(_raw(spanner=0.71), calls=calls),
+    )
+    document = _collect(probes)
+    assert len(calls) == 1
+    assert [p["id"] for p in document["probes"] if p["dimension"] == "experience"] == [
+        "errors",
+        "latency",
+        "saturation",
+    ]
+    assert document["signals"]["saturation"]["max_instances"] == 6
+    assert document["signals"]["traffic"]["requests"] == 2400 * 60
+    saturation = _probe(document, "saturation")
+    assert saturation["status"] == DEGRADED
+    assert "/spanner/instances/inst/details/monitoring" in saturation["console_url"]
+    errors = _probe(document, "errors")
+    assert errors["budget_ms"] == 25000
+    assert errors["console_url"].endswith("/run/detail/us-central1/dc/metrics?project=p")
+    # The internal fetch is not a probe of its own.
+    assert "signals" not in {p["id"] for p in document["probes"]}
+
+
+def test_unreadable_monitoring_makes_the_experience_probes_unknown_and_signals_null():
+    probes = (_signals_spec(boom=RuntimeError("403 monitoring.timeSeries.list denied")),)
+    document = _collect(probes)
+    assert document["signals"] is None
+    for probe_id in ("errors", "latency", "saturation"):
+        probe = _probe(document, probe_id)
+        assert probe["status"] == UNKNOWN
+        assert "Cloud Monitoring could not be read" in probe["detail"]
+        assert "denied" in probe["detail"]
+    assert document["partial"] is True
+    experience = next(d for d in document["dimensions"] if d["id"] == "experience")
+    assert experience["status"] == UNKNOWN

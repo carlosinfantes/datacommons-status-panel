@@ -28,19 +28,23 @@ from datetime import UTC, datetime
 
 from .config import EnvConfig
 from .console import console_url
-from .model import DIMENSION_OF, DIMENSIONS, UNKNOWN, Probe, ProbeContext, worst
+from .model import DIMENSION_OF, DIMENSIONS, HEALTHY, UNKNOWN, Probe, ProbeContext, worst
+from .monitoring import read_signals, shape_signals
 from .probes import (
     COUNTS_BUDGET_SECONDS,
     probe_counts,
     probe_data_sources,
     probe_dc_api,
     probe_dc_service,
+    probe_errors,
     probe_frontend,
     probe_import_status,
     probe_ingestion_lock,
     probe_ingestions,
+    probe_latency,
     probe_pending_uploads,
     probe_row_drift,
+    probe_saturation,
     probe_schema,
     probe_spanner,
     probe_version_consistency,
@@ -74,6 +78,23 @@ class Clients:
     rest: object
     public: object
     spanner_factory: object
+    monitoring: object = None  # monitoring.MonitoringReader
+
+
+def _fetch_signals(ctx: ProbeContext) -> Probe:
+    """The one Cloud Monitoring read of a collection, run on the probe pool.
+
+    Wrapped as a Probe so it rides the same deadline, timing and failure
+    handling as everything else. It is never emitted: errors, latency and
+    saturation are derived from it once the collection completes.
+    """
+    raw = read_signals(
+        ctx.monitoring,
+        service_name=ctx.datacommons_service_name,
+        spanner_instance_id=ctx.spanner_instance_id,
+        window_minutes=ctx.signals_window_minutes,
+    )
+    return Probe(id="signals", status=HEALTHY, data={"raw": raw})
 
 
 # version_consistency, row_drift and pending_uploads are derived from these
@@ -94,6 +115,7 @@ PROBES: tuple[ProbeSpec, ...] = (
     ProbeSpec("data_sources", probe_data_sources, ttl_seconds=300),
     ProbeSpec("import_status", probe_import_status),
     ProbeSpec("frontend", probe_frontend, budget_seconds=PUBLIC_TIMEOUT_SECONDS),
+    ProbeSpec("signals", _fetch_signals),
 )
 
 
@@ -117,6 +139,8 @@ def _context(config: EnvConfig, clients: Clients) -> ProbeContext:
         canary_node=config.canary_node,
         canary_name=config.canary_name,
         targets=config.targets,
+        monitoring=getattr(clients, "monitoring", None),
+        signals_window_minutes=config.signals_window_minutes,
     )
 
 
@@ -188,7 +212,40 @@ def collect_status(
                 results["data_sources"], results["ingestions"]
             )
 
-    return _document(config, _with_console_links(results, config), signals=None, now=now)
+    signals = None
+    if "signals" in results:
+        signals = _derive_experience(results, config)
+
+    return _document(config, _with_console_links(results, config), signals=signals, now=now)
+
+
+def _derive_experience(results: dict[str, Probe], config: EnvConfig) -> dict | None:
+    """Replace the internal signals fetch with the three Experience probes.
+
+    They share the fetch's timing, since that is the I/O they waited on. If the
+    fetch failed, all three are unknown for the same reason and the document
+    carries `signals: null`: a half-read picture that looks complete is worse
+    than an honest gap.
+    """
+    fetched = results.pop("signals")
+    timing = {"elapsed_ms": fetched.elapsed_ms, "budget_ms": fetched.budget_ms}
+    raw = (fetched.data or {}).get("raw")
+    if fetched.status == UNKNOWN or raw is None:
+        detail = f"Cloud Monitoring could not be read: {fetched.detail}"
+        for probe_id in ("errors", "latency", "saturation"):
+            results[probe_id] = Probe(id=probe_id, status=UNKNOWN, detail=detail, **timing)
+        return None
+
+    service = results.get("dc_service")
+    max_instances = (service.data or {}).get("max_instances") if service else None
+    signals = shape_signals(raw, config.targets, max_instances)
+    for probe in (
+        probe_errors(signals, config.targets),
+        probe_latency(signals, config.targets),
+        probe_saturation(signals, config.targets, config),
+    ):
+        results[probe.id] = replace(probe, **timing)
+    return signals
 
 
 def _run_all(probes, ctx: ProbeContext, config: EnvConfig, cache) -> dict[str, Probe]:
