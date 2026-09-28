@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
-  <rect width="16" height="16" rx="3" fill="#1f6feb" />
-  <circle cx="8" cy="8" r="3" fill="#ffffff" />
+  <!-- The page's own ink and paper, and the disc it uses to mark a reading. -->
+  <rect width="16" height="16" rx="3" fill="#14140f" />
+  <circle cx="8" cy="8" r="3.25" fill="#f7f7f4" />
 </svg>

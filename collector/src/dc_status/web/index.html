@@ -5,25 +5,57 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Data Commons — platform status</title>
     <link rel="icon" href="/static/favicon.svg" />
+    <link rel="preload" href="/static/fonts/plex-sans-var.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <div class="viz-root">
-      <header class="page-header">
-        <div class="page-header__row">
-          <h1>Platform status</h1>
-          <button id="refresh" type="button" class="button">Refresh</button>
-        </div>
-        <p id="generated" class="generated">Loading…</p>
-        <p class="disclaimer">
-          A snapshot you look at, not an alert that finds you. Detection lives in Cloud
-          Monitoring, separately.
+    <div class="readout" id="readout">
+      <!-- The utility bar carries identity, the snapshot's age, and the one control.
+           The verdict below is the page's heading, so nothing labels it from above. -->
+      <header class="bar">
+        <p class="bar__site">Data Commons platform status</p>
+        <p class="bar__age" id="age">
+          <span class="bar__clock" id="clock">—</span>
+          <span class="bar__relative" id="relative">reading</span>
         </p>
+        <button id="refresh" type="button" class="button">
+          Refresh
+        </button>
       </header>
 
-      <div id="banner" class="banner" role="status" hidden></div>
+      <main class="body" id="body">
+        <!-- A refresh rewrites the verdict, which is the one change on the page
+             worth announcing. The ticking age deliberately stays silent. -->
+        <header class="verdict" aria-live="polite">
+          <h1 class="verdict__headline" id="headline">Reading the platform…</h1>
+          <p class="verdict__cause" id="cause"></p>
+        </header>
 
-      <main id="environments" class="environments"></main>
+        <!-- No heading: the column names and the row-group rules already say what
+             this is, and a label above them would only repeat it. -->
+        <section class="block" id="matrix-block" aria-label="Measurements" hidden>
+          <div class="scroller">
+            <table class="matrix" id="matrix"></table>
+          </div>
+        </section>
+
+        <section class="block" id="findings-block" hidden>
+          <div class="block__head">
+            <h2 class="block__title">Findings</h2>
+            <button id="toggle-details" type="button" class="button button--quiet" aria-expanded="false">
+              Show every check
+            </button>
+          </div>
+          <div id="findings"></div>
+        </section>
+
+        <div id="details"></div>
+      </main>
+
+      <footer class="footnote">
+        A snapshot you look at, not an alert that finds you. Detection lives in Cloud
+        Monitoring, separately.
+      </footer>
     </div>
     <script src="/static/app.js"></script>
   </body>
