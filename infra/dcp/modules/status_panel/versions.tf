@@ -19,9 +19,9 @@ terraform {
   required_providers {
     google = {
       source = "hashicorp/google"
-      # Native IAP on Cloud Run v2 (`iap_enabled`) and the IAP Cloud Run IAM
-      # resources are only in recent 7.x releases; this module is tested on 7.x.
-      version = ">= 7.0, < 8.0"
+      # Native IAP on Cloud Run v2 (`iap_enabled`), the IAP Cloud Run IAM
+      # resources and `common_repository` need 7.x; tested on 7.x and 8.x.
+      version = ">= 7.0, < 9.0"
     }
   }
 }

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc.2] - 2026-09-28
+
+### Changed
+
+- The Terraform module accepts the google provider 8.x (`>= 7.0, < 9.0`), tested
+  on 7.x and 8.x.
+
 ## [1.0.0-rc.1] - 2026-09-28
 
 The v1 redesign: one panel per deployment, answering four questions. See the
@@ -91,5 +98,6 @@ The v1 redesign: one panel per deployment, answering four questions. See the
   frame-ancestors 'none'` and `Referrer-Policy: no-referrer`; `/api/*`
   responses carry `Cache-Control: no-store`.
 
-[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.1...HEAD
+[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.2...HEAD
+[1.0.0-rc.2]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/carlosinfantes/datacommons-status-panel/releases/tag/v1.0.0-rc.1
