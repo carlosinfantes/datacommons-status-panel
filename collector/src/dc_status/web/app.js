@@ -379,6 +379,19 @@ function tile(dimension, figure, caption, extra) {
   link.append(figure);
   link.append(element("span", "tile__caption", caption));
   (extra || []).forEach((node) => node && link.append(node));
+  // One sentence for assistive technology, instead of the tile's pieces run
+  // together: name, state, figure, what it means, then any note.
+  const value = [...figure.children].map((part) => part.textContent).join(" ");
+  const notes = [...link.querySelectorAll(".tile__note")].map((note) => note.textContent);
+  link.setAttribute(
+    "aria-label",
+    [
+      `${DIMENSIONS[dimension.id].label}, ${STATUS[statusOf(dimension.status)].label}.`,
+      `${value}, ${caption}.`,
+      ...notes.map((note) => `${capitalise(note)}.`),
+      "Go to section.",
+    ].join(" ")
+  );
   return link;
 }
 
