@@ -102,3 +102,89 @@ def test_the_retired_machine_door_cannot_stand_in_for_iap():
                 "DCS_ALLOWED_CALLERS": "one@x.iam.gserviceaccount.com",
             }
         )
+
+
+def test_canary_signals_window_and_targets_default_to_the_documented_values():
+    config = load_config(MINIMAL)
+    assert config.canary_node == "country/GTM"
+    assert config.canary_name == "Guatemala"
+    assert config.signals_window_minutes == 60
+    assert config.targets.to_dict() == {
+        "availability_pct": 99.5,
+        "latency_p95_ms": 1000,
+        "run_cpu_pct": 80,
+        "run_memory_pct": 80,
+        "spanner_cpu_pct": 65,
+        "min_requests_per_hour": 100,
+        "ingestion_max_age_hours": None,
+        "max_row_drop_pct": 10,
+    }
+
+
+def test_whole_number_targets_are_emitted_as_integers():
+    # The document is read by people as well as by the page: "1000" reads as a
+    # threshold, "1000.0" reads as a measurement.
+    emitted = load_config(MINIMAL).targets.to_dict()
+    assert isinstance(emitted["latency_p95_ms"], int)
+    assert isinstance(emitted["availability_pct"], float)
+
+
+def test_every_target_can_be_overridden():
+    config = load_config(
+        {
+            **MINIMAL,
+            "DCS_CANARY_NODE": "country/FRA",
+            "DCS_CANARY_NAME": "France",
+            "DCS_SIGNALS_WINDOW_MINUTES": "30",
+            "DCS_TARGET_AVAILABILITY_PCT": "99.9",
+            "DCS_TARGET_LATENCY_P95_MS": "750",
+            "DCS_TARGET_RUN_CPU_PCT": "70",
+            "DCS_TARGET_RUN_MEMORY_PCT": "75",
+            "DCS_TARGET_SPANNER_CPU_PCT": "45",
+            "DCS_TARGET_MIN_REQUESTS_PER_HOUR": "0",
+            "DCS_TARGET_INGESTION_MAX_AGE_HOURS": "36",
+            "DCS_TARGET_MAX_ROW_DROP_PCT": "2.5",
+        }
+    )
+    assert (config.canary_node, config.canary_name) == ("country/FRA", "France")
+    assert config.signals_window_minutes == 30
+    targets = config.targets
+    assert targets.availability_pct == 99.9
+    assert targets.latency_p95_ms == 750
+    assert targets.run_cpu_pct == 70
+    assert targets.run_memory_pct == 75
+    assert targets.spanner_cpu_pct == 45
+    assert targets.min_requests_per_hour == 0
+    assert targets.ingestion_max_age_hours == 36
+    assert targets.max_row_drop_pct == 2.5
+
+
+@pytest.mark.parametrize(
+    ("key", "raw"),
+    [
+        ("TARGET_AVAILABILITY_PCT", "100.1"),
+        ("TARGET_AVAILABILITY_PCT", "-1"),
+        ("TARGET_RUN_CPU_PCT", "101"),
+        ("TARGET_RUN_MEMORY_PCT", "nan"),
+        ("TARGET_SPANNER_CPU_PCT", "-0.5"),
+        ("TARGET_MAX_ROW_DROP_PCT", "150"),
+        ("TARGET_LATENCY_P95_MS", "-5"),
+        ("TARGET_LATENCY_P95_MS", "inf"),
+        ("TARGET_MIN_REQUESTS_PER_HOUR", "-1"),
+        ("TARGET_INGESTION_MAX_AGE_HOURS", "-2"),
+        ("TARGET_AVAILABILITY_PCT", "high"),
+        ("SIGNALS_WINDOW_MINUTES", "0"),
+        ("SIGNALS_WINDOW_MINUTES", "-10"),
+        ("SIGNALS_WINDOW_MINUTES", "1441"),
+        ("SIGNALS_WINDOW_MINUTES", "an hour"),
+    ],
+)
+def test_an_out_of_range_or_malformed_setting_names_its_variable(key, raw):
+    with pytest.raises(ConfigError) as caught:
+        load_config({**MINIMAL, f"DCS_{key}": raw})
+    assert f"DCS_{key}" in str(caught.value)
+
+
+def test_an_empty_max_age_means_shown_but_not_judged():
+    config = load_config({**MINIMAL, "DCS_TARGET_INGESTION_MAX_AGE_HOURS": ""})
+    assert config.targets.ingestion_max_age_hours is None
