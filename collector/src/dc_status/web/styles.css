@@ -835,11 +835,6 @@ body {
   color: var(--text-muted);
 }
 
-@media (max-width: 40rem) {
-  .source {
-    max-width: 8.5rem;
-  }
-}
 
 .swatch {
   display: inline-block;
@@ -1251,14 +1246,70 @@ body {
   color: var(--text-muted);
 }
 
+/* Under 40rem a row becomes a small stack: its name, then each figure beside
+   its column label. Nothing scrolls sideways and no figure is cut. */
 @media (max-width: 40rem) {
-  .data {
-    font-size: 0.75rem;
+  .data thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .data,
+  .data tbody {
+    display: block;
+  }
+
+  .data tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--gridline);
+  }
+
+  .data tbody tr:last-child {
+    border-bottom: none;
   }
 
   .data th,
-  .data td {
-    padding-right: var(--space-3);
+  .data td,
+  .data th:last-child,
+  .data td:last-child {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 0;
+    border: none;
+    min-width: 0;
+  }
+
+  .data tbody th {
+    font-weight: 500;
+    margin-bottom: 2px;
+  }
+
+  .data td::before {
+    content: attr(data-label);
+    font-family: var(--sans);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+
+  .data .numeric {
+    text-align: right;
+  }
+
+  .source {
+    max-width: 100%;
+  }
+
+  .col-trend,
+  .trend-cell {
+    width: auto;
   }
 }
 

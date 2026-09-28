@@ -597,6 +597,9 @@ function dataTable(caption, headers, rows) {
       if (content.className) classes.push(content.className);
       const cell = element(index === 0 ? "th" : "td", classes.join(" ") || null);
       if (index === 0) cell.scope = "row";
+      // Narrow screens stack each row into label/value pairs; the label
+      // travels with the cell so no column is ever cut off.
+      else if (header.label) cell.dataset.label = header.label;
       if (content.node) cell.append(content.node);
       else cell.textContent = content.text;
       row.append(cell);
@@ -1458,7 +1461,7 @@ function timeline({ width, height, snapshot, interactive, compact }) {
   return svg;
 }
 
-function timelineLegend() {
+function timelineLegend(snapshot) {
   const legend = element("ul", "legend");
   ["success", "failure", "running", "pending"].forEach((kind) => {
     const item = element("li", "legend__item");
@@ -1469,6 +1472,16 @@ function timelineLegend() {
     item.append(element("span", null, MARK_WORDS[kind]));
     legend.append(item);
   });
+  const limit = targets(snapshot).ingestion_max_age_hours;
+  if (isNumber(limit) && limit > 0) {
+    const item = element("li", "legend__item");
+    const key = frame(12, 12, "legend__key");
+    key.setAttribute("aria-hidden", "true");
+    key.append(svgNode("line", { class: "plot__target", x1: 6.5, x2: 6.5, y1: 0, y2: 12 }));
+    item.append(key);
+    item.append(element("span", null, `maximum age, ${decimal.format(limit)} h`));
+    legend.append(item);
+  }
   return legend;
 }
 
@@ -1620,7 +1633,7 @@ function drawCharts(snapshot) {
     } else if (kind === "timeline") {
       const wrap = element("div");
       wrap.append(timeline({ width, height: 56, snapshot, interactive: true, compact: false }));
-      wrap.append(timelineLegend());
+      wrap.append(timelineLegend(snapshot));
       content = wrap;
     } else if (kind === "traffic" || kind === "errors" || kind === "latency") {
       content = signalChart(snapshot, kind, width);
