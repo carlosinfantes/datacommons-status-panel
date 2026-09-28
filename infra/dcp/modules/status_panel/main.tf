@@ -131,6 +131,25 @@ resource "google_cloud_run_v2_service" "status" {
         value = tostring(var.schema_cache_ttl_seconds)
       }
 
+      # Defence in depth: IAP and the invoker bindings are the control, these make
+      # the collector refuse a request the perimeter should never have delivered.
+      env {
+        name  = "DCS_REQUIRE_AUTH"
+        value = var.require_auth ? "true" : "false"
+      }
+      env {
+        name  = "DCS_IAP_AUDIENCE"
+        value = var.iap_audience
+      }
+      env {
+        name  = "DCS_SELF_AUDIENCE"
+        value = var.self_url
+      }
+      env {
+        name  = "DCS_ALLOWED_CALLERS"
+        value = join(",", var.allowed_callers)
+      }
+
       startup_probe {
         http_get {
           path = "/healthz"

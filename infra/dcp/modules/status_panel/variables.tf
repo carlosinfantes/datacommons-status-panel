@@ -69,9 +69,87 @@ variable "iap_members" {
 }
 
 variable "invoker_members" {
-  description = "Members allowed to invoke the service directly, besides IAP."
+  description = "Service accounts allowed to invoke the service directly, besides IAP. Machines only."
   type        = list(string)
   default     = []
+
+  # This is the second door, and the weaker one: a principal here reaches Cloud
+  # Run with an ID token, without passing the IAP consent screen or needing
+  # roles/iap.httpsResourceAccessor. It exists for peer panels fanning in. A
+  # human added here "just to curl it" would be a permanent, silent bypass, so
+  # the type system refuses the shape of that mistake.
+  validation {
+    condition     = alltrue([for m in var.invoker_members : startswith(m, "serviceAccount:")])
+    error_message = "invoker_members bypasses IAP, so only serviceAccount: principals are accepted — never user:, group:, domain:, allUsers or allAuthenticatedUsers. Put humans in iap_members instead."
+  }
+
+  validation {
+    condition     = var.enable_iap || length(var.invoker_members) > 0
+    error_message = "enable_iap is false and invoker_members is empty, so nothing could reach the panel. Populate invoker_members or leave IAP on."
+  }
+}
+
+variable "require_auth" {
+  description = "Whether the collector verifies every request itself, on top of IAP."
+  type        = bool
+  default     = true
+
+  # The collector raises the same error on its first request. Checking it here
+  # means a policy nobody can satisfy fails at plan time — with no credentials
+  # needed, so CI catches it — instead of becoming a revision that refuses every
+  # admin. A validation rather than a lifecycle precondition for exactly that
+  # reason: preconditions are not reached until the provider has authenticated.
+  validation {
+    condition = !var.require_auth || var.iap_audience != "" || (
+      length(var.allowed_callers) > 0 && var.self_url != ""
+    )
+    error_message = "require_auth is true but no credential would be accepted: set iap_audience for browser access through IAP, and/or allowed_callers with self_url for peer fan-in."
+  }
+}
+
+variable "iap_audience" {
+  description = <<-EOT
+    Expected `aud` claim of IAP assertions, used by the collector to verify them.
+    Required when require_auth is true unless allowed_callers covers every caller.
+
+    This module does not assume the audience format: it differs between IAP
+    fronted by a load balancer and IAP enabled natively on Cloud Run. Read it
+    from a real assertion after the first deploy (decode the
+    X-Goog-IAP-JWT-Assertion header) or from the IAP documentation, then pin it
+    here. A wrong value fails closed — every browser request is refused.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "self_url" {
+  description = <<-EOT
+    This panel's own base URL, as its peers have it configured. Peers mint an ID
+    token with that URL as the audience, so the value here is what the collector
+    verifies incoming peer tokens against. Required when allowed_callers is set.
+
+    Not derived from the service's own uri attribute: that would be a
+    self-reference cycle. It is the same string the other panels carry in their
+    `peers` list, so it is already known at plan time.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "allowed_callers" {
+  description = "Service account emails allowed to fetch the document with an ID token. The peer panels, and nothing else."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for m in var.allowed_callers : can(regex("^[^@]+@[^@]+\\.iam\\.gserviceaccount\\.com$", m))])
+    error_message = "allowed_callers takes bare service account emails, not IAM member strings — 'panel@project.iam.gserviceaccount.com', not 'serviceAccount:panel@…'."
+  }
+
+  validation {
+    condition     = length(var.allowed_callers) == 0 || var.self_url != ""
+    error_message = "allowed_callers needs self_url: with no audience to check against, a peer's ID token would be accepted whichever service it was minted for."
+  }
 }
 
 variable "env_id" {

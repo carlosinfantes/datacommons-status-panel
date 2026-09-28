@@ -1,6 +1,6 @@
 import pytest
 
-from dc_status.config import ConfigError, load_config
+from dc_status.config import ConfigError, load_auth_config, load_config
 
 MINIMAL = {
     "DCS_ENV_ID": "staging",
@@ -69,3 +69,48 @@ def test_env_file_parsing_ignores_comments_and_blank_lines(tmp_path):
     path = tmp_path / "local.env"
     path.write_text("# a comment\n\nDCS_ENV_ID=staging\nDCS_REGION = us-central1 \n")
     assert load_env_file(str(path)) == {"DCS_ENV_ID": "staging", "DCS_REGION": "us-central1"}
+
+
+def test_access_is_required_by_default():
+    config = load_auth_config({"DCS_IAP_AUDIENCE": "/projects/1/apps/p"})
+    assert config.require is True
+    assert config.iap_enabled is True
+    assert config.callers_enabled is False
+
+
+def test_requiring_access_with_no_usable_credential_is_refused():
+    # A panel nobody can reach is a misconfiguration, not an access problem, and
+    # it should fail loudly once instead of 403ing every admin who tries.
+    with pytest.raises(ConfigError) as caught:
+        load_auth_config({})
+    assert "DCS_IAP_AUDIENCE" in str(caught.value)
+
+
+def test_access_can_be_switched_off_explicitly():
+    config = load_auth_config({"DCS_REQUIRE_AUTH": "false"})
+    assert config.require is False
+
+
+def test_a_non_boolean_require_auth_is_refused():
+    with pytest.raises(ConfigError):
+        load_auth_config({"DCS_REQUIRE_AUTH": "maybe"})
+
+
+def test_the_caller_allowlist_is_parsed_and_lowercased():
+    config = load_auth_config({
+        "DCS_SELF_AUDIENCE": "https://panel.example/",
+        "DCS_ALLOWED_CALLERS": "One@x.iam.gserviceaccount.com, two@x.iam.gserviceaccount.com",
+    })
+    assert config.allowed_callers == {
+        "one@x.iam.gserviceaccount.com",
+        "two@x.iam.gserviceaccount.com",
+    }
+    # The peers mint tokens against a base URL, so a trailing slash would make
+    # every audience comparison fail.
+    assert config.self_audience == "https://panel.example"
+    assert config.callers_enabled is True
+
+
+def test_an_allowlist_without_an_audience_cannot_be_enforced():
+    with pytest.raises(ConfigError):
+        load_auth_config({"DCS_ALLOWED_CALLERS": "one@x.iam.gserviceaccount.com"})

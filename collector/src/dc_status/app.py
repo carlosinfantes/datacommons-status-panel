@@ -7,21 +7,30 @@ import os
 from importlib.resources import files
 
 from .assemble import collect_all, collect_self
+from .auth import Denied, authorize
 from .cache import TTLCache
-from .config import load_config
+from .config import load_auth_config, load_config
 from .sanitize import sanitize
 
 _ASSETS = {
     "app.js": "text/javascript; charset=utf-8",
     "styles.css": "text/css; charset=utf-8",
     "favicon.svg": "image/svg+xml",
+    "fonts/plex-sans-var.woff2": "font/woff2",
+    "fonts/plex-mono-400.woff2": "font/woff2",
 }
+# The fonts are bundled with the image and only ever change under a new name, so
+# they can be cached hard. The page's own CSS and JS deliberately are not.
+_IMMUTABLE = frozenset({"fonts/plex-sans-var.woff2", "fonts/plex-mono-400.woff2"})
 _JSON = "application/json; charset=utf-8"
 _UNAVAILABLE = {"overall": "unknown", "partial": True, "environments": []}
 
 
 def _asset(name: str) -> bytes:
-    return (files("dc_status.web") / name).read_bytes()
+    target = files("dc_status.web")
+    for part in name.split("/"):
+        target = target / part
+    return target.read_bytes()
 
 
 def create_app(
@@ -31,7 +40,12 @@ def create_app(
     collect_self_fn=collect_self,
     collect_all_fn=collect_all,
     replay: str | None = None,
+    *,
+    auth,
+    verifier=None,
 ):
+    """`auth` is keyword-only and has no default on purpose: an app cannot be
+    built without stating who may read it."""
     cache = cache or TTLCache()
 
     def _document(include_peers: bool) -> tuple[dict, bool]:
@@ -62,8 +76,19 @@ def create_app(
             start_response(status, headers)
             return [body]
 
+        # /healthz sits above the gate: Cloud Run's startup probe does not
+        # traverse IAP, and the route says nothing beyond "the process is up".
         if path == "/healthz":
             return respond("200 OK", _JSON, json.dumps({"status": "ok"}).encode())
+
+        # Everything below is admin-only — the document names projects, buckets,
+        # tables and row counts, which is a reconnaissance map of the platform.
+        try:
+            authorize(environ, auth, verifier)
+        except Denied:
+            # The reason is already in the logs. Saying more here would tell an
+            # unauthenticated caller which door they got closest to.
+            return respond("403 Forbidden", _JSON, json.dumps({"error": "forbidden"}).encode())
 
         if path in ("/api/v1/self", "/api/v1/all"):
             document, partial = _document(path.endswith("/all"))
@@ -77,7 +102,10 @@ def create_app(
         if path.startswith("/static/"):
             name = path[len("/static/") :]
             if name in _ASSETS:  # an allowlist, so traversal has nothing to reach
-                return respond("200 OK", _ASSETS[name], _asset(name))
+                extra = (
+                    {"Cache-Control": "public, max-age=604800"} if name in _IMMUTABLE else None
+                )
+                return respond("200 OK", _ASSETS[name], _asset(name), extra)
 
         return respond("404 Not Found", _JSON, json.dumps({"error": "not found"}).encode())
 
@@ -85,13 +113,24 @@ def create_app(
 
 
 def _build_default():
-    from .clients import build_clients
-
     config = load_config(os.environ)
+    replay = os.environ.get("DCS_REPLAY_FILE")
+
+    clients = None
+    if not replay:
+        # Only reached when something will actually be probed. Replay serves a
+        # saved document and calls no API, so requiring credentials to build the
+        # clients would defeat the one thing the affordance exists for: iterating
+        # on the page without a deployment behind it.
+        from .clients import build_clients
+
+        clients = build_clients(config)
+
     return create_app(
         config=config,
-        clients=build_clients(config),
-        replay=os.environ.get("DCS_REPLAY_FILE"),
+        clients=clients,
+        replay=replay,
+        auth=load_auth_config(os.environ),
     )
 
 
