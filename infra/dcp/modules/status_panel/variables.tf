@@ -214,9 +214,9 @@ variable "request_timeout_seconds" {
 }
 
 variable "max_request_concurrency" {
-  description = "Concurrent requests per instance. Match the server's worker/thread product."
+  description = "Concurrent requests per instance. Matches the image's gunicorn setting: 2 workers × 8 threads."
   type        = number
-  default     = 8
+  default     = 16
 }
 
 variable "targets" {
