@@ -952,7 +952,9 @@ function renderFreshness(snapshot, dimension) {
   const facts = element("p", "caption");
   const lockText = lock.held
     ? `Lock: held${lock.owner ? ` by ${lock.owner}` : ""}${lock.since ? ` since ${formatStamp(lock.since)} UTC` : ""}.`
-    : "Lock: free.";
+    : lock.held === false
+      ? "Lock: free."
+      : "Lock: could not be read.";
   const limit = targets(snapshot).ingestion_max_age_hours;
   const ageText = isNumber(limit)
     ? ` An ingestion older than ${decimal.format(limit)} h is a finding.`
