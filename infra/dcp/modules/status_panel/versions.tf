@@ -21,7 +21,7 @@ terraform {
       source = "hashicorp/google"
       # Native IAP on Cloud Run v2 (`iap_enabled`) and the IAP Cloud Run IAM
       # resources are only in recent 7.x releases; this module is tested on 7.x.
-      version = ">= 7.0, < 8.0"
+      version = ">= 7.0, < 8.5"
     }
   }
 }
