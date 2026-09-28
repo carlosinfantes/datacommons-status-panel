@@ -318,3 +318,15 @@ variable "ghcr_image_path" {
   type        = string
   default     = "carlosinfantes/dc-status"
 }
+
+variable "service_account_email" {
+  description = "Run the collector as this existing service account instead of creating one. The module still grants it the read-only roles it needs. Use it when the deployer is granted actAs per service account: create the account and that binding before this module."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.service_account_email == null || can(regex("^[a-z0-9-]+@[a-z0-9-]+\\.iam\\.gserviceaccount\\.com$", var.service_account_email))
+    error_message = "service_account_email must be a service account email (…@<project>.iam.gserviceaccount.com)."
+  }
+}
+

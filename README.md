@@ -44,6 +44,14 @@ Registry APIs enabled in its project, and an OAuth consent screen
 (`google_iap_brand`) in that project. This module does not create the consent
 screen; without one the first `apply` fails.
 
+The principal that runs `terraform apply` needs, beyond creating the resources:
+
+- `artifactregistry.repositories.downloadArtifacts` on the image's repository.
+  Cloud Run checks that whoever deploys a revision can read its image.
+- `iam.serviceAccounts.actAs` on the collector's service account. If you grant
+  `actAs` per service account rather than project-wide, create the account and
+  that binding yourself, before the module, and pass `service_account_email`.
+
 **1. Get the image.** Each release publishes
 `ghcr.io/carlosinfantes/dc-status:<version>` signed with cosign, with SLSA
 provenance and an SBOM. The release notes give the digest. Verify it (see
@@ -196,6 +204,7 @@ The module never sets these.
 | `create_ghcr_remote` | `false` | Create an Artifact Registry remote repository with `https://ghcr.io` upstream. |
 | `ghcr_remote_repository_id` | `<instance_name>-ghcr` | ID of that repository (`ghcr` when `instance_name` is empty). |
 | `ghcr_image_path` | `carlosinfantes/dc-status` | Image path on GHCR, for forks. |
+| `service_account_email` | none | Run as an existing service account instead of creating one. Use it when your deployer gets `actAs` per service account (see below). |
 | `cpu`, `memory` | `1`, `512Mi` | Container limits. |
 | `min_instances`, `max_instances` | `0`, `2` | Scaling. Zero minimum instances costs nothing at rest. |
 | `max_request_concurrency` | `16` | Matches gunicorn's 2 workers × 8 threads. |

@@ -108,3 +108,32 @@ run "rejects_a_percentage_above_100" {
 
   expect_failures = [var.targets]
 }
+
+run "brings_its_own_service_account" {
+  command = plan
+
+  variables {
+    service_account_email = "panel-sa@example-project.iam.gserviceaccount.com"
+  }
+
+  assert {
+    condition     = length(google_service_account.status) == 0
+    error_message = "No service account is created when one is supplied."
+  }
+
+  assert {
+    condition     = output.service_account_email == "panel-sa@example-project.iam.gserviceaccount.com"
+    error_message = "The supplied account is the one the service runs as."
+  }
+}
+
+run "rejects_a_non_service_account_email" {
+  command = plan
+
+  variables {
+    service_account_email = "someone@example.org"
+  }
+
+  expect_failures = [var.service_account_email]
+}
+

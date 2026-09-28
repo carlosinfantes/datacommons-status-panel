@@ -24,7 +24,7 @@ output "service_uri" {
 
 output "service_account_email" {
   description = "Service account the collector runs as."
-  value       = google_service_account.status.email
+  value       = local.sa_email
 }
 
 output "ghcr_remote_image" {

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc.3] - 2026-09-28
+
+### Added
+
+- `service_account_email`: run the collector as an existing service account.
+  Needed where the deployer is granted `actAs` per service account, because
+  Cloud Run checks `actAs` when the service is created.
+
+### Changed
+
+- The module's own service account is now `google_service_account.status[0]`.
+  Upgrading from an earlier release candidate re-creates it unless the caller
+  adds a `moved` block.
+
+### Documentation
+
+- The deploying principal needs `artifactregistry.repositories.downloadArtifacts`
+  on the image's repository, and `iam.serviceAccounts.actAs` on the collector's
+  service account.
+
 ## [1.0.0-rc.2] - 2026-09-28
 
 ### Changed
@@ -98,6 +118,7 @@ The v1 redesign: one panel per deployment, answering four questions. See the
   frame-ancestors 'none'` and `Referrer-Policy: no-referrer`; `/api/*`
   responses carry `Cache-Control: no-store`.
 
-[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.2...HEAD
+[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.3...HEAD
+[1.0.0-rc.3]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.2...v1.0.0-rc.3
 [1.0.0-rc.2]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/carlosinfantes/datacommons-status-panel/releases/tag/v1.0.0-rc.1

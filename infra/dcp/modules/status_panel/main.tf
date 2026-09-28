@@ -16,6 +16,7 @@ locals {
   name_prefix   = var.instance_name != "" ? "${var.instance_name}-" : ""
   service_name  = "${local.name_prefix}dc-status"
   sa_account_id = "${local.name_prefix}dc-sts-sa"
+  sa_email      = var.service_account_email != null ? var.service_account_email : google_service_account.status[0].email
 
   # The IAP service agent has to be able to invoke the service. There is no
   # google_project_service_identity in the GA provider, so the well-known address
@@ -44,7 +45,12 @@ data "google_project" "this" {
   project_id = var.project_id
 }
 
+# Created here unless the caller brings its own (service_account_email). A caller
+# that grants its deployer actAs per service account, rather than project-wide,
+# has to: Cloud Run checks actAs when the service is created, and a binding on an
+# account this module creates cannot be ordered before that within one apply.
 resource "google_service_account" "status" {
+  count        = var.service_account_email == null ? 1 : 0
   project      = var.project_id
   account_id   = local.sa_account_id
   display_name = "Data Commons status panel"
@@ -59,7 +65,7 @@ resource "google_cloud_run_v2_service" "status" {
   deletion_protection = var.stateless_deletion_protection
 
   template {
-    service_account                  = google_service_account.status.email
+    service_account                  = local.sa_email
     timeout                          = "${var.request_timeout_seconds}s"
     max_instance_request_concurrency = var.max_request_concurrency
 
@@ -277,7 +283,7 @@ resource "google_project_iam_member" "project_roles" {
 
   project = var.project_id
   role    = each.value
-  member  = "serviceAccount:${google_service_account.status.email}"
+  member  = "serviceAccount:${local.sa_email}"
 }
 
 resource "google_spanner_database_iam_member" "reader" {
@@ -285,7 +291,7 @@ resource "google_spanner_database_iam_member" "reader" {
   instance = var.spanner_instance_id
   database = var.spanner_database_id
   role     = "roles/spanner.databaseReader"
-  member   = "serviceAccount:${google_service_account.status.email}"
+  member   = "serviceAccount:${local.sa_email}"
 }
 
 # databaseReader does not include instances.get or databases.get.
@@ -293,7 +299,7 @@ resource "google_spanner_instance_iam_member" "viewer" {
   project  = var.project_id
   instance = var.spanner_instance_id
   role     = "roles/spanner.viewer"
-  member   = "serviceAccount:${google_service_account.status.email}"
+  member   = "serviceAccount:${local.sa_email}"
 }
 
 resource "google_cloud_run_v2_service_iam_member" "datacommons_viewer" {
@@ -301,7 +307,7 @@ resource "google_cloud_run_v2_service_iam_member" "datacommons_viewer" {
   location = var.region
   name     = var.datacommons_service_name
   role     = "roles/run.viewer"
-  member   = "serviceAccount:${google_service_account.status.email}"
+  member   = "serviceAccount:${local.sa_email}"
 }
 
 # Lists object names and sizes; deliberately not objectViewer, so the panel can
@@ -309,5 +315,5 @@ resource "google_cloud_run_v2_service_iam_member" "datacommons_viewer" {
 resource "google_storage_bucket_iam_member" "bucket_reader" {
   bucket = var.artifacts_bucket_name
   role   = "roles/storage.legacyBucketReader"
-  member = "serviceAccount:${google_service_account.status.email}"
+  member = "serviceAccount:${local.sa_email}"
 }
