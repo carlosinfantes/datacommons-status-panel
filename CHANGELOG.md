@@ -68,6 +68,7 @@ The v1 redesign: one panel per deployment, answering four questions. See the
 ### Removed
 
 - Peer fan-in: `/api/v1/all`, the ID-token door and `peers.py`.
+- `/api/v1/self`, replaced by `/api/v1/status`.
 - Environment variables `DCS_PEERS`, `DCS_SELF_AUDIENCE` and
   `DCS_ALLOWED_CALLERS`.
 - Terraform variables `peers`, `self_url`, `allowed_callers` and

@@ -23,7 +23,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 _SKIP_DIRS = {".git", ".venv", ".superpowers", ".claude", ".agents", "__pycache__", ".terraform"}
-_SUFFIXES = {".py", ".js", ".css", ".tf", ".html", ".svg", ".yml", ".yaml"}
+_SUFFIXES = {".py", ".js", ".css", ".tf", ".hcl", ".html", ".svg", ".yml", ".yaml"}
 
 
 def _sources() -> list[Path]:

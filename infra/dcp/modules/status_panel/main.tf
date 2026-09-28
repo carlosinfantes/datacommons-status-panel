@@ -239,10 +239,8 @@ resource "google_artifact_registry_repository" "ghcr" {
   remote_repository_config {
     description = "ghcr.io"
 
-    docker_repository {
-      custom_repository {
-        uri = "https://ghcr.io"
-      }
+    common_repository {
+      uri = "https://ghcr.io"
     }
   }
 }
