@@ -14,7 +14,10 @@
 
 import json
 
+import pytest
+
 from dc_status.app import create_app
+from dc_status.cache import DocumentCache
 from dc_status.config import AuthConfig, EnvConfig
 
 _IAP_ISSUER = "https://cloud.google.com/iap"
@@ -54,6 +57,14 @@ def _config():
     )
 
 
+class FakeClock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
 def _call(app, path, **extra_environ):
     captured = {}
 
@@ -67,7 +78,7 @@ def _call(app, path, **extra_environ):
 
 
 def _app(document=None, replay=None, auth=None, verifier=None):
-    document = document or {"overall": "healthy", "partial": False, "environments": []}
+    document = document or {"schema_version": 2, "overall": "healthy", "partial": False}
     return create_app(
         config=_config(),
         clients=object(),
@@ -84,25 +95,27 @@ def test_healthz_answers_200():
     assert json.loads(body) == {"status": "ok"}
 
 
-def test_self_endpoint_returns_the_document():
-    captured, body = _call(_app(), "/api/v1/self")
+def test_the_status_endpoint_returns_the_document():
+    captured, body = _call(_app(), "/api/v1/status")
     assert captured["status"].startswith("200")
     assert json.loads(body)["overall"] == "healthy"
     assert captured["headers"]["Content-Type"] == "application/json; charset=utf-8"
 
 
 def test_a_partial_document_sets_the_partial_header():
-    document = {"overall": "degraded", "partial": True, "environments": []}
-    captured, _body = _call(_app(document), "/api/v1/self")
+    document = {"schema_version": 2, "overall": "degraded", "partial": True}
+    captured, _body = _call(_app(document), "/api/v1/status")
     assert captured["headers"]["X-Status-Partial"] == "true"
 
 
 def test_a_complete_document_does_not_set_the_partial_header():
-    captured, _body = _call(_app(), "/api/v1/self")
+    captured, _body = _call(_app(), "/api/v1/status")
     assert "X-Status-Partial" not in captured["headers"]
 
 
-def test_a_collector_failure_still_answers_200():
+def test_a_collector_failure_answers_500_with_a_sanitized_detail():
+    # A probe failing is a finding and still answers 200; the collector itself
+    # failing means there is no document, and the page shows this detail.
     def boom(*_args, **_kwargs):
         raise RuntimeError("everything is on fire with Bearer ya29.leaked")
 
@@ -112,12 +125,13 @@ def test_a_collector_failure_still_answers_200():
         collect_status_fn=boom,
         auth=_ungated(),
     )
-    captured, body = _call(app, "/api/v1/self")
-    assert captured["status"].startswith("200")
+    captured, body = _call(app, "/api/v1/status")
+    assert captured["status"].startswith("500")
     payload = json.loads(body)
-    assert payload["overall"] == "unknown"
+    assert payload["error"] == "unavailable"
+    assert "everything is on fire" in payload["detail"]
     assert "ya29" not in json.dumps(payload)
-    assert captured["headers"]["X-Status-Partial"] == "true"
+    assert captured["headers"]["Cache-Control"] == "no-store"
 
 
 def test_root_serves_the_page():
@@ -151,9 +165,67 @@ def test_the_page_css_and_js_are_not_cached_like_the_fonts():
         assert "Cache-Control" not in captured["headers"]
 
 
-def test_the_peer_fan_in_route_is_gone():
-    captured, _body = _call(_app(), "/api/v1/all")
+@pytest.mark.parametrize("path", ["/api/v1/all", "/api/v1/self"])
+def test_the_v0_routes_are_gone(path):
+    captured, _body = _call(_app(), path)
     assert captured["status"].startswith("404")
+
+
+@pytest.mark.parametrize("path", ["/", "/static/app.js", "/api/v1/status", "/healthz", "/nope"])
+def test_every_response_carries_the_security_headers(path):
+    captured, _body = _call(_app(), path)
+    headers = captured["headers"]
+    assert headers["Content-Security-Policy"] == "default-src 'self'; frame-ancestors 'none'"
+    assert headers["Referrer-Policy"] == "no-referrer"
+    assert headers["X-Content-Type-Options"] == "nosniff"
+
+
+def test_a_refusal_carries_the_security_headers_too():
+    captured, _body = _call(_app(auth=_gated(), verifier=_AcceptingVerifier()), "/")
+    assert captured["status"].startswith("403")
+    assert captured["headers"]["Content-Security-Policy"].startswith("default-src 'self'")
+
+
+def test_the_document_is_never_cached_by_a_browser_or_proxy():
+    captured, _body = _call(_app(), "/api/v1/status")
+    assert captured["headers"]["Cache-Control"] == "no-store"
+
+
+def _counting_app(clock):
+    calls = []
+
+    def collect(*_a, **_k):
+        calls.append(1)
+        return {"schema_version": 2, "overall": "healthy", "partial": False, "n": len(calls)}
+
+    app = create_app(
+        config=_config(),
+        clients=object(),
+        collect_status_fn=collect,
+        auth=_ungated(),
+        document_cache=DocumentCache(clock=clock),
+    )
+    return app, calls
+
+
+def test_the_document_is_cached_between_requests():
+    app, calls = _counting_app(FakeClock())
+    _call(app, "/api/v1/status")
+    _call(app, "/api/v1/status")
+    assert len(calls) == 1
+
+
+def test_fresh_bypasses_the_cache_once_the_document_is_old_enough():
+    clock = FakeClock()
+    app, calls = _counting_app(clock)
+    _call(app, "/api/v1/status")
+    clock.now += 5
+    _call(app, "/api/v1/status", QUERY_STRING="fresh=1")
+    assert len(calls) == 1  # too soon: rate-limited
+    clock.now += 5
+    _captured, body = _call(app, "/api/v1/status", QUERY_STRING="fresh=1")
+    assert len(calls) == 2
+    assert json.loads(body)["n"] == 2
 
 
 def test_path_traversal_is_refused():
@@ -176,7 +248,7 @@ def test_an_unknown_path_is_404_json():
 
 def test_replay_short_circuits_the_collector(tmp_path):
     replay_file = tmp_path / "replay.json"
-    replay_file.write_text(json.dumps({"overall": "down", "partial": False, "environments": []}))
+    replay_file.write_text(json.dumps({"schema_version": 2, "overall": "down", "partial": False}))
 
     def boom(*_a, **_k):
         raise AssertionError("the collector must not run in replay mode")
@@ -188,7 +260,7 @@ def test_replay_short_circuits_the_collector(tmp_path):
         replay=str(replay_file),
         auth=_ungated(),
     )
-    _captured, body = _call(app, "/api/v1/self")
+    _captured, body = _call(app, "/api/v1/status")
     assert json.loads(body)["overall"] == "down"
 
 
@@ -205,7 +277,7 @@ def test_an_app_cannot_be_built_without_an_access_policy():
 
 def test_an_unauthenticated_request_for_the_document_is_refused():
     app = _app(auth=_gated(), verifier=_AcceptingVerifier())
-    for path in ("/api/v1/self",):
+    for path in ("/api/v1/status",):
         captured, body = _call(app, path)
         assert captured["status"].startswith("403")
         # Nothing but the refusal: no hint about which credential was missing.
@@ -230,7 +302,7 @@ def test_healthz_stays_open_when_access_is_gated():
 def test_a_verified_iap_assertion_reaches_the_document():
     app = _app(auth=_gated(), verifier=_AcceptingVerifier())
     captured, body = _call(
-        app, "/api/v1/self", HTTP_X_GOOG_IAP_JWT_ASSERTION="a.verified.assertion"
+        app, "/api/v1/status", HTTP_X_GOOG_IAP_JWT_ASSERTION="a.verified.assertion"
     )
     assert captured["status"].startswith("200")
     assert json.loads(body)["overall"] == "healthy"
@@ -264,7 +336,9 @@ def test_replay_needs_no_credentials(monkeypatch, tmp_path):
     import dc_status.clients as clients_module
 
     replay_file = tmp_path / "replay.json"
-    replay_file.write_text(json.dumps({"overall": "healthy", "partial": False, "environments": []}))
+    replay_file.write_text(
+        json.dumps({"schema_version": 2, "overall": "healthy", "partial": False})
+    )
 
     def explode(*_a, **_k):
         raise AssertionError("replay must not build authorized clients")
@@ -277,7 +351,7 @@ def test_replay_needs_no_credentials(monkeypatch, tmp_path):
     )
 
     app = app_module._build_default()
-    _captured, body = _call(app, "/api/v1/self")
+    _captured, body = _call(app, "/api/v1/status")
     assert json.loads(body)["overall"] == "healthy"
 
 

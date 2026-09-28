@@ -39,6 +39,9 @@ ENV PATH="/app/.venv/bin:$PATH" \
 USER 1001
 EXPOSE 8080
 
-# Two workers with threads: every request fans out to ten probes internally.
+# Two workers of eight threads. A collection runs its probes on its own pool, so
+# request threads mostly wait: on the single-flight document cache (one
+# collection per worker at a time, shared by every concurrent reader) or on the
+# network. The 60 s timeout clears the 25 s collection deadline with room over.
 CMD exec gunicorn --bind ":$PORT" --workers 2 --threads 8 --timeout 60 \
     --access-logfile - dc_status.app:application

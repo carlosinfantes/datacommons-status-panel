@@ -12,17 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""WSGI application. No framework: four routes and a few files."""
+"""WSGI application. No framework: three routes and a few files."""
 
 from __future__ import annotations
 
 import json
 import os
 from importlib.resources import files
+from urllib.parse import parse_qs
 
 from .assemble import collect_status
 from .auth import Denied, authorize
-from .cache import TTLCache
+from .cache import DocumentCache, TTLCache
 from .config import load_auth_config, load_config
 from .sanitize import sanitize
 
@@ -37,7 +38,18 @@ _ASSETS = {
 # they can be cached hard. The page's own CSS and JS deliberately are not.
 _IMMUTABLE = frozenset({"fonts/plex-sans-var.woff2", "fonts/plex-mono-400.woff2"})
 _JSON = "application/json; charset=utf-8"
-_UNAVAILABLE = {"overall": "unknown", "partial": True, "environments": []}
+
+# On every response, the refusal and the 404 included. The page loads only
+# same-origin files and runs no inline script, so default-src 'self' costs it
+# nothing; styles set from script through element.style go through the CSSOM,
+# which CSP does not govern. frame-ancestors 'none' stops the panel being
+# framed by another site; no-referrer keeps project and bucket names in the
+# URL from leaking to wherever a console link leads.
+_SECURITY_HEADERS = (
+    ("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'"),
+    ("Referrer-Policy", "no-referrer"),
+    ("X-Content-Type-Options", "nosniff"),
+)
 
 
 def _asset(name: str) -> bytes:
@@ -45,6 +57,11 @@ def _asset(name: str) -> bytes:
     for part in name.split("/"):
         target = target / part
     return target.read_bytes()
+
+
+def _wants_fresh(environ) -> bool:
+    values = parse_qs(environ.get("QUERY_STRING", "")).get("fresh", [])
+    return any(value in ("1", "true") for value in values)
 
 
 def create_app(
@@ -56,31 +73,30 @@ def create_app(
     *,
     auth,
     verifier=None,
+    document_cache: DocumentCache | None = None,
 ):
     """`auth` is keyword-only and has no default on purpose: an app cannot be
     built without stating who may read it."""
     cache = cache or TTLCache()
+    documents = document_cache or DocumentCache()
 
-    def _document() -> tuple[dict, bool]:
-        try:
-            if replay:
-                with open(replay, encoding="utf-8") as handle:
-                    document = json.load(handle)
-            else:
-                document = collect_status_fn(config, clients, cache)
-        except Exception as exc:
-            document = {**_UNAVAILABLE, "detail": sanitize(exc)}
-        return document, bool(document.get("partial"))
+    def _collect() -> dict:
+        return collect_status_fn(config, clients, cache)
+
+    def _document(fresh: bool) -> dict:
+        if replay:
+            # Read on every request, uncached: it is a local file, and editing it
+            # while the page is open is the point of the affordance.
+            with open(replay, encoding="utf-8") as handle:
+                return json.load(handle)
+        return documents.get(_collect, fresh=fresh)
 
     def application(environ, start_response):
         path = environ.get("PATH_INFO", "/")
 
         def respond(status: str, content_type: str, body: bytes, extra: dict | None = None):
-            headers = [
-                ("Content-Type", content_type),
-                ("Content-Length", str(len(body))),
-                ("X-Content-Type-Options", "nosniff"),
-            ]
+            headers = [("Content-Type", content_type), ("Content-Length", str(len(body)))]
+            headers.extend(_SECURITY_HEADERS)
             headers.extend((extra or {}).items())
             start_response(status, headers)
             return [body]
@@ -99,10 +115,20 @@ def create_app(
             # unauthenticated caller which door they got closest to.
             return respond("403 Forbidden", _JSON, json.dumps({"error": "forbidden"}).encode())
 
-        if path == "/api/v1/self":
-            document, partial = _document()
-            extra = {"X-Status-Partial": "true"} if partial else {}
-            extra["Cache-Control"] = "no-store"
+        if path == "/api/v1/status":
+            # no-store on every /api answer, errors included: a stale verdict
+            # replayed from a browser or proxy cache is worse than none.
+            extra = {"Cache-Control": "no-store"}
+            try:
+                document = _document(_wants_fresh(environ))
+            except Exception as exc:
+                # A probe failing is a finding and still answers 200 inside the
+                # document. Reaching here means there is no document at all, so
+                # say so with a 5xx; the page shows `detail`.
+                body = {"error": "unavailable", "detail": sanitize(exc)}
+                return respond("500 Internal Server Error", _JSON, json.dumps(body).encode(), extra)
+            if document.get("partial"):
+                extra["X-Status-Partial"] = "true"
             return respond("200 OK", _JSON, json.dumps(document).encode(), extra)
 
         if path in ("/", "/index.html"):
