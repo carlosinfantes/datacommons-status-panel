@@ -24,6 +24,8 @@ permissions: read-all
 
 jobs:
   analysis:
+    # Scorecard publishes to the public OpenSSF API, which only accepts public repos.
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     permissions:
       security-events: write
