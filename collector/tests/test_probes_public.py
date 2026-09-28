@@ -33,6 +33,8 @@ def _ctx(public):
     ctx.public = public
     ctx.public_endpoint_url = "https://api.example"
     ctx.frontend_url = "https://www.example"
+    ctx.canary_node = "country/GTM"
+    ctx.canary_name = "Guatemala"
     return ctx
 
 
@@ -105,7 +107,43 @@ def test_frontend_200_is_healthy():
     assert probe_frontend(_ctx(FakePublic((200, "<html></html>")))).status == HEALTHY
 
 
-def test_frontend_404_degrades_with_the_empty_bucket_explanation():
+def test_frontend_404_degrades_with_a_generic_explanation():
     probe = probe_frontend(_ctx(FakePublic((404, "Not Found"))))
     assert probe.status == DEGRADED
-    assert "empty" in probe.detail.lower()
+    assert "404" in probe.detail
+    # Nothing that presumes who is responsible for publishing the site.
+    assert "team" not in probe.detail.lower()
+
+
+def test_dc_api_resolves_the_configured_canary():
+    public = FakePublic(
+        (200, '{"data":{"country/FRA":{"arcs":{"name":{"nodes":[{"value":"France"}]}}}}}')
+    )
+    ctx = _ctx(public)
+    ctx.canary_node = "country/FRA"
+    ctx.canary_name = "France"
+    probe = probe_dc_api(ctx)
+    assert probe.status == HEALTHY
+    assert "nodes=country/FRA" in public.urls[0]
+    assert probe.data["canary"] == {"node": "country/FRA", "name": "France"}
+
+
+def test_dc_api_fails_when_the_configured_canary_resolves_to_another_name():
+    public = FakePublic(
+        (200, '{"data":{"country/GTM":{"arcs":{"name":{"nodes":[{"value":"Guatemala"}]}}}}}')
+    )
+    ctx = _ctx(public)
+    ctx.canary_name = "Guatemala City"
+    probe = probe_dc_api(ctx)
+    assert probe.status == DEGRADED
+    assert "Guatemala City" in probe.detail
+
+
+def test_dc_api_matches_a_non_ascii_canary_name():
+    # A substring check over json.dumps compares against the escaped text and
+    # never matches a name outside ASCII.
+    body = '{"data":{"country/CIV":{"arcs":{"name":{"nodes":[{"value":"C\\u00f4te d\\u2019Ivoire"}]}}}}}'
+    ctx = _ctx(FakePublic((200, body)))
+    ctx.canary_node = "country/CIV"
+    ctx.canary_name = "Côte d’Ivoire"
+    assert probe_dc_api(ctx).status == HEALTHY

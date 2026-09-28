@@ -20,6 +20,7 @@ import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from urllib.parse import quote
 
 from .model import (
     DEGRADED,
@@ -30,7 +31,9 @@ from .model import (
     UNKNOWN,
     Probe,
     ProbeContext,
+    minor_key,
     minor_of,
+    newest_known_minor,
     parse_image_version,
 )
 from .timestamps import parse_timestamp
@@ -63,8 +66,20 @@ def probe_dc_service(ctx: ProbeContext) -> Probe:
             "latest_ready_revision": revision.rsplit("/", 1)[-1] if revision else None,
             "image": image,
             "dcp_version": parse_image_version(image or ""),
+            # The ceiling the saturation probe compares live instances against.
+            # Read here, from the spec already fetched, rather than configured a
+            # second time and left to drift from what Cloud Run enforces.
+            "max_instances": _max_instances(service),
         },
     )
+
+
+def _max_instances(service: dict) -> int | None:
+    raw = ((service.get("template") or {}).get("scaling") or {}).get("maxInstanceCount")
+    try:
+        return int(raw) if raw else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _live_image(ctx: ProbeContext, service: dict, revision: str) -> str | None:
@@ -147,29 +162,55 @@ def probe_version_consistency(service: Probe, schema: Probe) -> Probe:
             detail="the schema could not be read, so consistency cannot be judged",
             data={"dcp_version": version, "missing_tables": []},
         )
-    if minor is None or minor not in REQUIRED_TABLES:
+    checked_against = _table_set_for(minor)
+    if checked_against is None:
         return Probe(
             id="version_consistency",
             status=UNKNOWN,
             detail=f"unrecognised platform version: {version!r}",
-            data={"dcp_version": version, "missing_tables": []},
+            data={"dcp_version": version, "missing_tables": [], "checked_against": None},
         )
-    missing = sorted(REQUIRED_TABLES[minor] - tables)
+    # Said out loud whenever the answer rests on a table set that was not
+    # verified for this version, so a green result is never over-read.
+    caveat = (
+        ""
+        if checked_against == minor
+        else f"checked against {checked_against}; {minor} is not verified"
+    )
+    missing = sorted(REQUIRED_TABLES[checked_against] - tables)
+    data = {"dcp_version": version, "missing_tables": missing, "checked_against": checked_against}
     if missing:
+        detail = (
+            f"the running image is {version} but the database is missing the tables "
+            f"that version serves from: {', '.join(missing)}"
+        )
         return Probe(
             id="version_consistency",
             status=DOWN,
-            detail=(
-                f"the running image is {version} but the database is missing the tables "
-                f"that version serves from: {', '.join(missing)}"
-            ),
-            data={"dcp_version": version, "missing_tables": missing},
+            detail=f"{detail} ({caveat})" if caveat else detail,
+            data=data,
         )
-    return Probe(
-        id="version_consistency",
-        status=HEALTHY,
-        data={"dcp_version": version, "missing_tables": []},
-    )
+    return Probe(id="version_consistency", status=HEALTHY, detail=caveat, data=data)
+
+
+def _table_set_for(minor: str | None) -> str | None:
+    """The REQUIRED_TABLES key to judge `minor` against, or None.
+
+    A known minor uses its own set. A minor newer than every known one uses the
+    newest known set (D7): an operator who upgrades the platform before this
+    panel should see the check still run, not a red panel. An older unknown
+    minor has no sensible stand-in, so it stays unjudged.
+    """
+    if minor is None:
+        return None
+    if minor in REQUIRED_TABLES:
+        return minor
+    try:
+        key = minor_key(minor)
+    except ValueError:
+        return None
+    newest = newest_known_minor()
+    return newest if key > minor_key(newest) else None
 
 
 _COUNT_TIMEOUT_SECONDS = 8.0
@@ -259,10 +300,6 @@ SELECT COUNT(*) AS Total, COUNTIF(LockOwner IS NOT NULL) AS Held,
        MIN(AcquiredTimestamp) AS OldestAcquired
 FROM IngestionLock
 """.strip()
-
-# The columns NodeCount / EdgeCount / ObservationCount / TimeSeriesCount exist on
-# IngestionHistory but are NULL in every row of both environments. Counts come
-# from probe_counts instead.
 
 
 def _workflow_executions(ctx) -> list[dict]:
@@ -546,19 +583,21 @@ def probe_data_sources(ctx, *, max_pages: int = 5) -> Probe:
     )
 
 
-# Mirrors the readiness check the platform's own MCP sidecar performs against the
-# mixer at startup: if this fails the sidecar exits and the service returns 502.
-_API_PATH = "/core/api/v2/node?nodes=country/GTM&property=->name"
-_API_EXPECTED = "Guatemala"
+# The same shape of check the platform's own MCP sidecar performs against the
+# mixer at startup (with its default node): if that fails the sidecar exits and
+# the service returns 502. The canary is configurable because a custom instance
+# may not serve the base graph's entities.
+def _api_path(node: str) -> str:
+    return f"/core/api/v2/node?nodes={quote(node, safe='/')}&property=->name"
 
 
-def _resolved(body: str) -> bool:
-    """True only when the query actually resolved the entity.
+def _resolved(body: str, expected: str) -> bool:
+    """True only when the query actually resolved the entity to `expected`.
 
-    A bare `_API_EXPECTED in body` would accept an error payload that merely
-    mentions the name, or an HTML proxy page. Requiring valid JSON with the value
-    inside its `data` branch rules both out, without hard-coding a response shape
-    that changes between platform versions.
+    A bare substring test over the body would accept an error payload that
+    merely mentions the name, or an HTML proxy page. Requiring valid JSON and an
+    exact string value inside its `data` branch rules both out, without
+    hard-coding a response shape that changes between platform versions.
     """
     try:
         payload = json.loads(body)
@@ -566,16 +605,32 @@ def _resolved(body: str) -> bool:
         return False
     if not isinstance(payload, dict):
         return False
-    return _API_EXPECTED in json.dumps(payload.get("data") or {})
+    return expected in _strings(payload.get("data"))
+
+
+def _strings(node) -> set[str]:
+    if isinstance(node, str):
+        return {node}
+    if isinstance(node, dict):
+        node = list(node.values())
+    if isinstance(node, list):
+        found: set[str] = set()
+        for item in node:
+            found |= _strings(item)
+        return found
+    return set()
 
 
 def probe_dc_api(ctx) -> Probe:
-    url = f"{ctx.public_endpoint_url.rstrip('/')}{_API_PATH}"
+    url = f"{ctx.public_endpoint_url.rstrip('/')}{_api_path(ctx.canary_node)}"
+    canary = {"node": ctx.canary_node, "name": ctx.canary_name}
     try:
         code, body = ctx.public.get_text(url)
     except Exception as exc:
-        return Probe(id="dc_api", status=DOWN, detail=str(exc), data={"probe_url": url})
-    data = {"http_status": code, "probe_url": url}
+        return Probe(
+            id="dc_api", status=DOWN, detail=str(exc), data={"probe_url": url, "canary": canary}
+        )
+    data = {"http_status": code, "probe_url": url, "canary": canary}
     if code == 502:
         return Probe(
             id="dc_api",
@@ -585,11 +640,14 @@ def probe_dc_api(ctx) -> Probe:
         )
     if code != 200:
         return Probe(id="dc_api", status=DOWN, detail=f"HTTP {code} from the endpoint", data=data)
-    if not _resolved(body):
+    if not _resolved(body, ctx.canary_name):
         return Probe(
             id="dc_api",
             status=DEGRADED,
-            detail=f"the endpoint answered 200 but the known entity did not resolve to {_API_EXPECTED}",
+            detail=(
+                f"the endpoint answered 200 but {ctx.canary_node} did not resolve "
+                f"to {ctx.canary_name}"
+            ),
             data=data,
         )
     return Probe(id="dc_api", status=HEALTHY, data=data)
@@ -607,7 +665,7 @@ def probe_frontend(ctx) -> Probe:
         return Probe(
             id="frontend",
             status=DEGRADED,
-            detail="404: the frontend bucket is empty, pending the development team",
+            detail="HTTP 404 at the frontend root: nothing is published there",
             data={"http_status": code},
         )
     return Probe(id="frontend", status=DEGRADED, detail=f"HTTP {code}", data={"http_status": code})

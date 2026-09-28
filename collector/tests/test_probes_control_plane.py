@@ -72,6 +72,37 @@ def test_dc_service_is_healthy_and_reports_the_live_version():
     assert probe.data["latest_ready_revision"] == "dc-00042-abc"
 
 
+def test_dc_service_reports_the_configured_maximum_instances():
+    # The saturation probe compares live instances with this ceiling, so it is
+    # read from the same service spec rather than configured twice.
+    session = FakeSession(
+        {
+            "/services/dc$": FakeResponse(
+                payload={
+                    "terminalCondition": {"state": "CONDITION_SUCCEEDED"},
+                    "latestReadyRevision": "",
+                    "template": {
+                        "scaling": {"maxInstanceCount": 6},
+                        "containers": [{"image": "gcr.io/x/datacommons-services:1.1.1"}],
+                    },
+                }
+            ),
+        }
+    )
+    assert probe_dc_service(_context(session)).data["max_instances"] == 6
+
+
+def test_dc_service_reports_no_maximum_when_none_is_set():
+    session = FakeSession(
+        {
+            "/services/dc$": FakeResponse(
+                payload={"terminalCondition": {"state": "CONDITION_SUCCEEDED"}}
+            )
+        }
+    )
+    assert probe_dc_service(_context(session)).data["max_instances"] is None
+
+
 def test_dc_service_falls_back_to_the_only_container():
     session = FakeSession(
         {

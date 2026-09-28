@@ -100,7 +100,7 @@ PUBLIC_TIMEOUT_SECONDS = 8.0
 
 
 class PublicClient:
-    """Unauthenticated HTTP, for probing public endpoints (S1, S10)."""
+    """Unauthenticated HTTP, for probing the public endpoints (dc_api, frontend)."""
 
     def __init__(self, session=None, *, timeout: float = PUBLIC_TIMEOUT_SECONDS):
         if session is None:

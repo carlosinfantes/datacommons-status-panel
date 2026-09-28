@@ -103,3 +103,41 @@ def test_version_consistency_is_unknown_for_an_unrecognised_version():
 def test_version_consistency_is_unknown_when_the_schema_is_unknown():
     probe = probe_version_consistency(_service("1.1.1"), _schema([]))
     assert probe.status == UNKNOWN
+
+
+def test_an_unknown_newer_minor_is_checked_against_the_newest_known_table_set():
+    # D7: an operator who upgrades before the panel does must not see red. The
+    # check still runs, against the newest table set it knows, and says so.
+    probe = probe_version_consistency(_service("1.2.0"), _schema(V111))
+    assert probe.status == HEALTHY
+    assert "checked against 1.1" in probe.detail
+    assert "1.2 is not verified" in probe.detail
+    assert probe.data["checked_against"] == "1.1"
+
+
+def test_an_unknown_newer_minor_still_catches_a_missing_table():
+    without_timeseries = [t for t in V111 if t != "TimeSeries"]
+    probe = probe_version_consistency(_service("2.0.3"), _schema(without_timeseries))
+    assert probe.status == DOWN
+    assert probe.data["missing_tables"] == ["TimeSeries"]
+    assert "checked against 1.1" in probe.detail
+
+
+def test_newer_is_compared_numerically_not_as_text():
+    # "1.10" sorts before "1.2" as text; numerically it is newer than 1.1.
+    probe = probe_version_consistency(_service("1.10.0"), _schema(V111))
+    assert probe.status == HEALTHY
+    assert probe.data["checked_against"] == "1.1"
+
+
+def test_an_unknown_older_minor_stays_unknown():
+    probe = probe_version_consistency(_service("0.9.0"), _schema(V111))
+    assert probe.status == UNKNOWN
+    assert "0.9.0" in probe.detail
+
+
+def test_a_known_minor_is_checked_against_its_own_table_set():
+    probe = probe_version_consistency(_service("1.1.4"), _schema(V111))
+    assert probe.status == HEALTHY
+    assert probe.detail == ""
+    assert probe.data["checked_against"] == "1.1"

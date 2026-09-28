@@ -66,7 +66,7 @@ class Clients:
     spanner_factory: object
 
 
-# S1-S4 and S6-S10. S5 (version_consistency) is derived after these complete.
+# version_consistency is derived after these complete, so it is not listed.
 PROBES: tuple[ProbeSpec, ...] = (
     ProbeSpec("dc_api", probe_dc_api, budget_seconds=PUBLIC_TIMEOUT_SECONDS),
     ProbeSpec("dc_service", probe_dc_service),
@@ -102,6 +102,8 @@ def _context(config: EnvConfig, clients: Clients) -> ProbeContext:
         rest=clients.rest,
         public=clients.public,
         spanner_factory=clients.spanner_factory,
+        canary_node=config.canary_node,
+        canary_name=config.canary_name,
     )
 
 

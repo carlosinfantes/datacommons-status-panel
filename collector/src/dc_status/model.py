@@ -47,9 +47,10 @@ TABLE_ALLOWLIST = frozenset(
 )
 
 # Which tables a given platform minor version needs in order to serve.
-# 1.1 is verified against both live environments. 1.0 comes from the upstream
-# v1.0.0 schema and is NOT verified against a running instance: no v1.0
-# deployment exists any more. Unknown versions yield `unknown`, not a failure.
+# 1.1 is verified against running deployments. 1.0 comes from the upstream
+# v1.0.0 schema and is NOT verified against a running instance. A minor newer
+# than every entry here is checked against the newest entry (D7); an older
+# unknown one yields `unknown`, not a failure.
 REQUIRED_TABLES: dict[str, frozenset[str]] = {
     "1.1": frozenset({"TimeSeries", "Observation", "Node", "Edge", "KeyValueStore"}),
     "1.0": frozenset({"Observation", "Node", "Edge", "Cache"}),
@@ -111,6 +112,15 @@ def minor_of(version: str | None) -> str | None:
     return ".".join(parts[:2]) if len(parts) >= 2 else None
 
 
+def minor_key(minor: str) -> tuple[int, ...]:
+    """Numeric ordering for "1.10" vs "1.2", which text ordering gets backwards."""
+    return tuple(int(part) for part in minor.split("."))
+
+
+def newest_known_minor() -> str:
+    return max(REQUIRED_TABLES, key=minor_key)
+
+
 @dataclass
 class ProbeContext:
     """Everything a probe needs. Built once per collection."""
@@ -130,3 +140,5 @@ class ProbeContext:
     rest: object
     public: object
     spanner_factory: object  # callable() -> SpannerSQL
+    canary_node: str = "country/GTM"
+    canary_name: str = "Guatemala"
