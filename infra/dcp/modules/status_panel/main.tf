@@ -30,12 +30,6 @@ locals {
   project_roles = [
     "roles/workflows.viewer",
   ]
-
-  # With enable_iap = false and invoker_members left empty, nothing can invoke the
-  # service. That is deliberate — it fails closed rather than open, and allUsers is
-  # never granted — but an operator turning IAP off must populate invoker_members
-  # or the panel becomes unreachable.
-  invokers = var.enable_iap ? concat([local.iap_agent], var.invoker_members) : var.invoker_members
 }
 
 data "google_project" "this" {
@@ -133,10 +127,6 @@ resource "google_cloud_run_v2_service" "status" {
         value = var.input_prefix
       }
       env {
-        name  = "DCS_PEERS"
-        value = jsonencode(var.peers)
-      }
-      env {
         name  = "DCS_COUNTS_CACHE_TTL_SECONDS"
         value = tostring(var.counts_cache_ttl_seconds)
       }
@@ -145,7 +135,7 @@ resource "google_cloud_run_v2_service" "status" {
         value = tostring(var.schema_cache_ttl_seconds)
       }
 
-      # Defence in depth: IAP and the invoker bindings are the control, these make
+      # Defence in depth: IAP and the invoker binding are the control, these make
       # the collector refuse a request the perimeter should never have delivered.
       env {
         name  = "DCS_REQUIRE_AUTH"
@@ -154,14 +144,6 @@ resource "google_cloud_run_v2_service" "status" {
       env {
         name  = "DCS_IAP_AUDIENCE"
         value = var.iap_audience
-      }
-      env {
-        name  = "DCS_SELF_AUDIENCE"
-        value = var.self_url
-      }
-      env {
-        name  = "DCS_ALLOWED_CALLERS"
-        value = join(",", var.allowed_callers)
       }
 
       startup_probe {
@@ -176,8 +158,15 @@ resource "google_cloud_run_v2_service" "status" {
   }
 }
 
+# IAP's service agent is the only invoker, whether IAP is native (enable_iap) or
+# on a load balancer in front. Nobody else holds roles/run.invoker and allUsers
+# is never granted, so a request that did not come through IAP cannot reach the
+# container at all.
+#
+# Still keyed by member under the old address: renaming it would make Terraform
+# create and delete the same binding in one apply, and whichever lands last wins.
 resource "google_cloud_run_v2_service_iam_member" "invokers" {
-  for_each = toset(local.invokers)
+  for_each = toset([local.iap_agent])
 
   project  = var.project_id
   location = var.region

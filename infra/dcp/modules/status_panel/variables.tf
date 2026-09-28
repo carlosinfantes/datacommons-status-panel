@@ -71,35 +71,26 @@ variable "ingress" {
 }
 
 variable "enable_iap" {
-  description = "Whether Identity-Aware Proxy fronts the service."
+  description = <<-EOT
+    Whether IAP is enabled natively on the Cloud Run service. Set it to false only
+    when IAP is enforced by a load balancer you manage in front of the service,
+    and grant access on that backend service, because iap_members is then not
+    applied. Either way the only principal granted roles/run.invoker is IAP's
+    service agent, so turning this off without such a load balancer leaves the
+    panel closed, not open.
+  EOT
   type        = bool
   default     = true
 }
 
 variable "iap_members" {
-  description = "Members granted access through IAP."
-  type        = list(string)
-  default     = []
-}
-
-variable "invoker_members" {
-  description = "Service accounts allowed to invoke the service directly, besides IAP. Machines only."
+  description = "Principals granted roles/iap.httpsResourceAccessor on the service. Empty means nobody; prefer a group."
   type        = list(string)
   default     = []
 
-  # This is the second door, and the weaker one: a principal here reaches Cloud
-  # Run with an ID token, without passing the IAP consent screen or needing
-  # roles/iap.httpsResourceAccessor. It exists for peer panels fanning in. A
-  # human added here "just to curl it" would be a permanent, silent bypass, so
-  # the type system refuses the shape of that mistake.
   validation {
-    condition     = alltrue([for m in var.invoker_members : startswith(m, "serviceAccount:")])
-    error_message = "invoker_members bypasses IAP, so only serviceAccount: principals are accepted — never user:, group:, domain:, allUsers or allAuthenticatedUsers. Put humans in iap_members instead."
-  }
-
-  validation {
-    condition     = var.enable_iap || length(var.invoker_members) > 0
-    error_message = "enable_iap is false and invoker_members is empty, so nothing could reach the panel. Populate invoker_members or leave IAP on."
+    condition     = alltrue([for m in var.iap_members : !contains(["allUsers", "allAuthenticatedUsers"], m)])
+    error_message = "iap_members must name principals; allUsers or allAuthenticatedUsers would publish the panel."
   }
 }
 
@@ -114,17 +105,15 @@ variable "require_auth" {
   # admin. A validation rather than a lifecycle precondition for exactly that
   # reason: preconditions are not reached until the provider has authenticated.
   validation {
-    condition = !var.require_auth || var.iap_audience != "" || (
-      length(var.allowed_callers) > 0 && var.self_url != ""
-    )
-    error_message = "require_auth is true but no credential would be accepted: set iap_audience for browser access through IAP, and/or allowed_callers with self_url for peer fan-in."
+    condition     = !var.require_auth || var.iap_audience != ""
+    error_message = "require_auth is true but iap_audience is empty, so no request would be accepted. Set iap_audience to the aud claim of this service's IAP assertions."
   }
 }
 
 variable "iap_audience" {
   description = <<-EOT
     Expected `aud` claim of IAP assertions, used by the collector to verify them.
-    Required when require_auth is true unless allowed_callers covers every caller.
+    Required when require_auth is true.
 
     This module does not assume the audience format: it differs between IAP
     fronted by a load balancer and IAP enabled natively on Cloud Run. Read it
@@ -134,36 +123,6 @@ variable "iap_audience" {
   EOT
   type        = string
   default     = ""
-}
-
-variable "self_url" {
-  description = <<-EOT
-    This panel's own base URL, as its peers have it configured. Peers mint an ID
-    token with that URL as the audience, so the value here is what the collector
-    verifies incoming peer tokens against. Required when allowed_callers is set.
-
-    Not derived from the service's own uri attribute: that would be a
-    self-reference cycle. It is the same string the other panels carry in their
-    `peers` list, so it is already known at plan time.
-  EOT
-  type        = string
-  default     = ""
-}
-
-variable "allowed_callers" {
-  description = "Service account emails allowed to fetch the document with an ID token. The peer panels, and nothing else."
-  type        = list(string)
-  default     = []
-
-  validation {
-    condition     = alltrue([for m in var.allowed_callers : can(regex("^[^@]+@[^@]+\\.iam\\.gserviceaccount\\.com$", m))])
-    error_message = "allowed_callers takes bare service account emails, not IAM member strings — 'panel@project.iam.gserviceaccount.com', not 'serviceAccount:panel@…'."
-  }
-
-  validation {
-    condition     = length(var.allowed_callers) == 0 || var.self_url != ""
-    error_message = "allowed_callers needs self_url: with no audience to check against, a peer's ID token would be accepted whichever service it was minted for."
-  }
 }
 
 variable "env_id" {
@@ -222,16 +181,6 @@ variable "input_prefix" {
   description = "Path inside the bucket where per-source input lives."
   type        = string
   default     = "ingestion/input/"
-}
-
-variable "peers" {
-  description = "Other status panels to aggregate. Empty means this panel only reports itself."
-  type = list(object({
-    id    = string
-    label = string
-    url   = string
-  }))
-  default = []
 }
 
 variable "counts_cache_ttl_seconds" {
