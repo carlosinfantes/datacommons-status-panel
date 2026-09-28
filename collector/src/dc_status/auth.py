@@ -18,7 +18,7 @@ are named explicitly in `DCS_ALLOWED_CALLERS`.
 from __future__ import annotations
 
 import logging
-from typing import Mapping
+from collections.abc import Mapping
 
 from .config import AuthConfig
 from .sanitize import sanitize

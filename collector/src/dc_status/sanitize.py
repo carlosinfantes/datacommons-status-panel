@@ -16,7 +16,9 @@ _PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bAIza[\w\-]{10,}"),
     re.compile(r"\beyJ[\w\-]+\.[\w\-]+\.[\w\-]+"),
     re.compile(r"(?i)\b(bearer)\s+\S+"),
-    re.compile(r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)\b\s*[:=]\s*\S+"),
+    re.compile(
+        r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)\b\s*[:=]\s*\S+"
+    ),
 )
 
 

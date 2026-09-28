@@ -37,7 +37,9 @@ def test_retries_on_503_then_succeeds():
 
 
 def test_does_not_retry_on_403_and_raises():
-    session = FakeSession({"/x": FakeResponse(status_code=403, payload={"error": {"message": "denied"}})})
+    session = FakeSession(
+        {"/x": FakeResponse(status_code=403, payload={"error": {"message": "denied"}})}
+    )
     client = RestClient(session, retries=2, sleep=lambda _s: None)
     with pytest.raises(RestError) as excinfo:
         client.get("https://run.googleapis.com/v2/x")
@@ -66,7 +68,9 @@ def test_post_sends_the_body():
 
 def test_error_message_is_sanitized():
     long_message = "Bearer ya29.leaked " + "x" * 500
-    session = FakeSession({"/x": FakeResponse(status_code=400, payload={"error": {"message": long_message}})})
+    session = FakeSession(
+        {"/x": FakeResponse(status_code=400, payload={"error": {"message": long_message}})}
+    )
     client = RestClient(session, retries=0)
     with pytest.raises(RestError) as excinfo:
         client.get("https://run.googleapis.com/v2/x")

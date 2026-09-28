@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 from .rest import RestClient, RestError
 
 _BASE = "https://spanner.googleapis.com/v1"
@@ -11,9 +13,7 @@ _INT_CODES = frozenset({"INT64"})
 class SpannerSQL:
     def __init__(self, rest: RestClient, project_id: str, instance_id: str, database_id: str):
         self._rest = rest
-        self._database = (
-            f"projects/{project_id}/instances/{instance_id}/databases/{database_id}"
-        )
+        self._database = f"projects/{project_id}/instances/{instance_id}/databases/{database_id}"
         self._session: str | None = None
 
     def query(self, sql: str, *, staleness_seconds: int = 10, timeout: float = 8.0) -> list[dict]:
@@ -29,10 +29,8 @@ class SpannerSQL:
 
     def close(self) -> None:
         if self._session:
-            try:
+            with contextlib.suppress(RestError):
                 self._rest.delete(f"{_BASE}/{self._session}")
-            except RestError:
-                pass
             self._session = None
 
     def _execute(self, body: dict, timeout: float) -> dict:
@@ -62,7 +60,10 @@ def _decode(payload: dict) -> list[dict]:
         # Trailing NULLs can be absent; pad by the field count, never by len(row).
         padded = list(row) + [None] * (len(names) - len(row))
         decoded.append(
-            {name: _value(value, code) for name, code, value in zip(names, codes, padded)}
+            {
+                name: _value(value, code)
+                for name, code, value in zip(names, codes, padded, strict=True)
+            }
         )
     return decoded
 

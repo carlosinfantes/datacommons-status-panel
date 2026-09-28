@@ -1,3 +1,5 @@
+import contextlib
+
 from dc_status.cache import TTLCache
 
 
@@ -28,7 +30,9 @@ def test_recomputes_after_the_ttl_expires():
     clock = FakeClock()
     cache = TTLCache(clock=clock)
     values = iter(["first", "second"])
-    producer = lambda: next(values)
+
+    def producer():
+        return next(values)
 
     assert cache.get_or_call("k", 300, producer) == "first"
     clock.now += 301
@@ -45,7 +49,10 @@ def test_a_ttl_of_zero_never_caches():
     clock = FakeClock()
     cache = TTLCache(clock=clock)
     values = iter([1, 2])
-    producer = lambda: next(values)
+
+    def producer():
+        return next(values)
+
     assert cache.get_or_call("k", 0, producer) == 1
     assert cache.get_or_call("k", 0, producer) == 2
 
@@ -60,8 +67,6 @@ def test_a_failing_producer_does_not_poison_the_entry():
             raise RuntimeError("boom")
         return "ok"
 
-    try:
+    with contextlib.suppress(RuntimeError):
         cache.get_or_call("k", 300, flaky)
-    except RuntimeError:
-        pass
     assert cache.get_or_call("k", 300, flaky) == "ok"

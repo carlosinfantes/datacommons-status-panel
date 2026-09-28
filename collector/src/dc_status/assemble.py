@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Callable
+from datetime import UTC, datetime
 
 from .config import EnvConfig, PeerConfig
 from .model import UNKNOWN, Probe, ProbeContext, worst
@@ -214,7 +214,7 @@ def _environment_document(config: EnvConfig, probes: list[Probe]) -> dict:
 
 
 def _wrap(environments: list[dict], *, now: datetime | None, partial: bool) -> dict:
-    stamp = (now or datetime.now(timezone.utc)).isoformat()
+    stamp = (now or datetime.now(UTC)).isoformat()
     return {
         "generated_at": stamp,
         "overall": worst(environment.get("overall", UNKNOWN) for environment in environments),

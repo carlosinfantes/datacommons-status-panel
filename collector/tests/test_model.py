@@ -59,19 +59,22 @@ def test_digest_only_image_has_no_version():
 
 
 def test_allowlist_is_the_verified_v111_schema():
-    assert TABLE_ALLOWLIST == frozenset(
-        {
-            "Edge",
-            "ImportStatus",
-            "ImportVersionHistory",
-            "IngestionHistory",
-            "IngestionLock",
-            "KeyValueStore",
-            "Node",
-            "NodeEmbedding",
-            "Observation",
-            "TimeSeries",
-        }
+    assert (
+        frozenset(
+            {
+                "Edge",
+                "ImportStatus",
+                "ImportVersionHistory",
+                "IngestionHistory",
+                "IngestionLock",
+                "KeyValueStore",
+                "Node",
+                "NodeEmbedding",
+                "Observation",
+                "TimeSeries",
+            }
+        )
+        == TABLE_ALLOWLIST
     )
 
 

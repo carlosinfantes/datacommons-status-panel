@@ -24,7 +24,10 @@ def test_prints_the_document_as_json(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(
         cli,
         "collect_self",
-        lambda config, clients, cache: {"overall": HEALTHY, "environments": [{"id": config.env_id}]},
+        lambda config, clients, cache: {
+            "overall": HEALTHY,
+            "environments": [{"id": config.env_id}],
+        },
     )
 
     assert cli.main(["--env-file", str(env_file)]) == 0

@@ -8,9 +8,7 @@ _IAP_ISSUER = "https://cloud.google.com/iap"
 
 def _ungated():
     """For the tests that are about routing, not about access."""
-    return AuthConfig(
-        require=False, iap_audience="", self_audience="", allowed_callers=frozenset()
-    )
+    return AuthConfig(require=False, iap_audience="", self_audience="", allowed_callers=frozenset())
 
 
 def _gated():
@@ -32,12 +30,22 @@ class _AcceptingVerifier:
 
 def _config():
     return EnvConfig(
-        env_id="prod", env_label="Production", project_id="p", region="us-central1",
-        spanner_instance_id="i", spanner_database_id="d", datacommons_service_name="dc",
+        env_id="prod",
+        env_label="Production",
+        project_id="p",
+        region="us-central1",
+        spanner_instance_id="i",
+        spanner_database_id="d",
+        datacommons_service_name="dc",
         ingestion_workflow_name="wf",
-        artifacts_bucket_name="b", public_endpoint_url="https://api.example",
-        frontend_url="https://www.example", data_source_prefixes=(), input_prefix="ingestion/input/",
-        peers=(), counts_cache_ttl_seconds=300, schema_cache_ttl_seconds=3600,
+        artifacts_bucket_name="b",
+        public_endpoint_url="https://api.example",
+        frontend_url="https://www.example",
+        data_source_prefixes=(),
+        input_prefix="ingestion/input/",
+        peers=(),
+        counts_cache_ttl_seconds=300,
+        schema_cache_ttl_seconds=3600,
     )
 
 
@@ -95,7 +103,10 @@ def test_a_collector_failure_still_answers_200():
         raise RuntimeError("everything is on fire with Bearer ya29.leaked")
 
     app = create_app(
-        config=_config(), clients=object(), collect_self_fn=boom, collect_all_fn=boom,
+        config=_config(),
+        clients=object(),
+        collect_self_fn=boom,
+        collect_all_fn=boom,
         auth=_ungated(),
     )
     captured, body = _call(app, "/api/v1/self")
@@ -163,8 +174,12 @@ def test_replay_short_circuits_the_collector(tmp_path):
         raise AssertionError("the collector must not run in replay mode")
 
     app = create_app(
-        config=_config(), clients=object(), collect_self_fn=boom, collect_all_fn=boom,
-        replay=str(replay_file), auth=_ungated(),
+        config=_config(),
+        clients=object(),
+        collect_self_fn=boom,
+        collect_all_fn=boom,
+        replay=str(replay_file),
+        auth=_ungated(),
     )
     _captured, body = _call(app, "/api/v1/all")
     assert json.loads(body)["overall"] == "down"
@@ -221,10 +236,15 @@ def test_an_unknown_path_is_still_403_before_it_is_404():
 
 
 _MINIMAL_ENV = {
-    "DCS_ENV_ID": "prod", "DCS_PROJECT_ID": "p", "DCS_REGION": "us-central1",
-    "DCS_SPANNER_INSTANCE_ID": "i", "DCS_SPANNER_DATABASE_ID": "d",
-    "DCS_DATACOMMONS_SERVICE_NAME": "dc", "DCS_INGESTION_WORKFLOW_NAME": "wf",
-    "DCS_ARTIFACTS_BUCKET_NAME": "b", "DCS_PUBLIC_ENDPOINT_URL": "https://api.example",
+    "DCS_ENV_ID": "prod",
+    "DCS_PROJECT_ID": "p",
+    "DCS_REGION": "us-central1",
+    "DCS_SPANNER_INSTANCE_ID": "i",
+    "DCS_SPANNER_DATABASE_ID": "d",
+    "DCS_DATACOMMONS_SERVICE_NAME": "dc",
+    "DCS_INGESTION_WORKFLOW_NAME": "wf",
+    "DCS_ARTIFACTS_BUCKET_NAME": "b",
+    "DCS_PUBLIC_ENDPOINT_URL": "https://api.example",
     "DCS_FRONTEND_URL": "https://www.example",
 }
 
@@ -244,7 +264,8 @@ def test_replay_needs_no_credentials(monkeypatch, tmp_path):
 
     monkeypatch.setattr(clients_module, "build_clients", explode)
     monkeypatch.setattr(
-        app_module.os, "environ",
+        app_module.os,
+        "environ",
         {**_MINIMAL_ENV, "DCS_REPLAY_FILE": str(replay_file), "DCS_REQUIRE_AUTH": "false"},
     )
 
@@ -260,10 +281,10 @@ def test_a_live_deployment_still_builds_its_clients(monkeypatch):
     import dc_status.clients as clients_module
 
     built = []
-    monkeypatch.setattr(clients_module, "build_clients", lambda config: built.append(config) or object())
     monkeypatch.setattr(
-        app_module.os, "environ", {**_MINIMAL_ENV, "DCS_REQUIRE_AUTH": "false"}
+        clients_module, "build_clients", lambda config: built.append(config) or object()
     )
+    monkeypatch.setattr(app_module.os, "environ", {**_MINIMAL_ENV, "DCS_REQUIRE_AUTH": "false"})
 
     app_module._build_default()
     assert len(built) == 1

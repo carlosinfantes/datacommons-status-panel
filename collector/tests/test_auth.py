@@ -80,7 +80,9 @@ def test_the_denial_does_not_carry_the_token_back():
     # The reason is logged, so it must not quote the credential that failed.
     with pytest.raises(Denied) as caught:
         authorize(
-            _iap("eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl"), _config(), RejectingVerifier()
+            _iap("eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl"),
+            _config(),
+            RejectingVerifier(),
         )
     assert "eyJhbGciOiJSUzI1NiJ9" not in str(caught.value)
 
@@ -116,7 +118,10 @@ def test_the_bearer_token_is_checked_against_this_service_url():
 
 def test_a_caller_outside_the_allowlist_is_denied():
     verifier = RecordingVerifier(
-        id_token_payload={"iss": _GOOGLE_ISSUER, "email": "someone-else@example.iam.gserviceaccount.com"}
+        id_token_payload={
+            "iss": _GOOGLE_ISSUER,
+            "email": "someone-else@example.iam.gserviceaccount.com",
+        }
     )
     with pytest.raises(Denied):
         authorize(_bearer(), _config(), verifier)
@@ -143,7 +148,9 @@ def test_a_bearer_token_is_denied_when_no_self_audience_is_configured():
 
 def test_a_non_bearer_authorization_header_is_ignored():
     with pytest.raises(Denied):
-        authorize({"HTTP_AUTHORIZATION": "Basic YWRtaW46aHVudGVyMg=="}, _config(), RecordingVerifier())
+        authorize(
+            {"HTTP_AUTHORIZATION": "Basic YWRtaW46aHVudGVyMg=="}, _config(), RecordingVerifier()
+        )
 
 
 def test_the_iap_door_wins_when_both_credentials_arrive():

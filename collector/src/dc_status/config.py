@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 _PREFIX = "DCS_"
 
@@ -175,7 +175,11 @@ def _parse_peers(raw: str) -> tuple[PeerConfig, ...]:
         if not isinstance(entry, dict) or not entry.get("id") or not entry.get("url"):
             raise ConfigError(f"{_PREFIX}PEERS entries need at least an id and a url")
         peers.append(
-            PeerConfig(id=entry["id"], label=entry.get("label") or entry["id"], url=entry["url"].rstrip("/"))
+            PeerConfig(
+                id=entry["id"],
+                label=entry.get("label") or entry["id"],
+                url=entry["url"].rstrip("/"),
+            )
         )
     return tuple(peers)
 

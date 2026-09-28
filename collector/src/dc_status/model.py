@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable
 
 from .sanitize import sanitize
 
@@ -41,7 +41,9 @@ REQUIRED_TABLES: dict[str, frozenset[str]] = {
     "1.0": frozenset({"Observation", "Node", "Edge", "Cache"}),
 }
 
-_IMAGE_RE = re.compile(r"^(?P<repo>[^:@]+)(?::(?P<tag>[^:@]+))?(?:@(?P<digest>sha256:[0-9a-f]{64}))?$")
+_IMAGE_RE = re.compile(
+    r"^(?P<repo>[^:@]+)(?::(?P<tag>[^:@]+))?(?:@(?P<digest>sha256:[0-9a-f]{64}))?$"
+)
 _SEMVER_RE = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
 
 

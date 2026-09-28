@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 _FRACTION_RE = re.compile(r"\.(\d{1,9})")
 
@@ -18,4 +18,4 @@ def parse_timestamp(text: str | None) -> datetime | None:
         parsed = datetime.fromisoformat(cleaned)
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)

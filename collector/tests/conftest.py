@@ -55,11 +55,14 @@ class FakeSession:
         if params:
             signature += "?" + "&".join(f"{key}={value}" for key, value in sorted(params.items()))
         matches = [
-            response for fragment, response in self.routes.items()
+            response
+            for fragment, response in self.routes.items()
             if _fragment_matches(fragment, signature)
         ]
         if len(matches) > 1:
-            raise AssertionError(f"{len(matches)} routes match {signature!r}; the fixture is ambiguous")
+            raise AssertionError(
+                f"{len(matches)} routes match {signature!r}; the fixture is ambiguous"
+            )
         if not matches:
             raise AssertionError(f"unexpected request in test: {signature!r}")
         response = matches[0]

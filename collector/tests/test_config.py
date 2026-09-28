@@ -97,10 +97,12 @@ def test_a_non_boolean_require_auth_is_refused():
 
 
 def test_the_caller_allowlist_is_parsed_and_lowercased():
-    config = load_auth_config({
-        "DCS_SELF_AUDIENCE": "https://panel.example/",
-        "DCS_ALLOWED_CALLERS": "One@x.iam.gserviceaccount.com, two@x.iam.gserviceaccount.com",
-    })
+    config = load_auth_config(
+        {
+            "DCS_SELF_AUDIENCE": "https://panel.example/",
+            "DCS_ALLOWED_CALLERS": "One@x.iam.gserviceaccount.com, two@x.iam.gserviceaccount.com",
+        }
+    )
     assert config.allowed_callers == {
         "one@x.iam.gserviceaccount.com",
         "two@x.iam.gserviceaccount.com",

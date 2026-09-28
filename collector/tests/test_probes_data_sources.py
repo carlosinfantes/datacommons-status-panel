@@ -37,12 +37,26 @@ def test_reports_files_bytes_last_update_and_rows_per_prefix():
         {
             "prefix=ingestion/input/agency-a/": _listing(
                 [
-                    {"name": "ingestion/input/agency-a/a.csv", "size": "100", "updated": "2026-08-01T10:00:00Z"},
-                    {"name": "ingestion/input/agency-a/b.mcf", "size": "50", "updated": "2026-08-04T09:12:00Z"},
+                    {
+                        "name": "ingestion/input/agency-a/a.csv",
+                        "size": "100",
+                        "updated": "2026-08-01T10:00:00Z",
+                    },
+                    {
+                        "name": "ingestion/input/agency-a/b.mcf",
+                        "size": "50",
+                        "updated": "2026-08-04T09:12:00Z",
+                    },
                 ]
             ),
             "prefix=ingestion/input/agency-b/": _listing(
-                [{"name": "ingestion/input/agency-b/c.csv", "size": "7", "updated": "2026-07-30T08:00:00Z"}]
+                [
+                    {
+                        "name": "ingestion/input/agency-b/c.csv",
+                        "size": "7",
+                        "updated": "2026-07-30T08:00:00Z",
+                    }
+                ]
             ),
         }
     )
@@ -64,7 +78,13 @@ def test_a_prefix_with_no_files_degrades():
         {
             "prefix=ingestion/input/agency-a/": _listing([]),
             "prefix=ingestion/input/agency-b/": _listing(
-                [{"name": "ingestion/input/agency-b/c.csv", "size": "7", "updated": "2026-07-30T08:00:00Z"}]
+                [
+                    {
+                        "name": "ingestion/input/agency-b/c.csv",
+                        "size": "7",
+                        "updated": "2026-07-30T08:00:00Z",
+                    }
+                ]
             ),
         }
     )
@@ -77,7 +97,13 @@ def test_a_prefix_with_files_but_no_rows_reports_none():
     session = FakeSession(
         {
             "prefix=ingestion/input/agency-a/": _listing(
-                [{"name": "ingestion/input/agency-a/a.csv", "size": "1", "updated": "2026-08-01T10:00:00Z"}]
+                [
+                    {
+                        "name": "ingestion/input/agency-a/a.csv",
+                        "size": "1",
+                        "updated": "2026-08-01T10:00:00Z",
+                    }
+                ]
             )
         }
     )
@@ -89,7 +115,13 @@ def test_provenances_without_a_matching_prefix_are_surfaced_not_dropped():
     session = FakeSession(
         {
             "prefix=ingestion/input/agency-a/": _listing(
-                [{"name": "ingestion/input/agency-a/a.csv", "size": "1", "updated": "2026-08-01T10:00:00Z"}]
+                [
+                    {
+                        "name": "ingestion/input/agency-a/a.csv",
+                        "size": "1",
+                        "updated": "2026-08-01T10:00:00Z",
+                    }
+                ]
             )
         }
     )
@@ -122,8 +154,13 @@ def test_a_database_failure_is_not_reported_as_healthy():
     session = FakeSession(
         {
             "prefix=ingestion/input/agency-a/": _listing(
-                [{"name": "ingestion/input/agency-a/a.csv", "size": "1",
-                  "updated": "2026-08-01T10:00:00Z"}]
+                [
+                    {
+                        "name": "ingestion/input/agency-a/a.csv",
+                        "size": "1",
+                        "updated": "2026-08-01T10:00:00Z",
+                    }
+                ]
             )
         }
     )
@@ -138,8 +175,12 @@ def test_a_database_failure_is_not_reported_as_healthy():
 def test_follows_pagination_and_flags_truncation_at_the_page_cap():
     pages = {
         "prefix=ingestion/input/agency-a/": [
-            _listing([{"name": "a", "size": "1", "updated": "2026-08-01T10:00:00Z"}], next_token="t1"),
-            _listing([{"name": "b", "size": "1", "updated": "2026-08-02T10:00:00Z"}], next_token="t2"),
+            _listing(
+                [{"name": "a", "size": "1", "updated": "2026-08-01T10:00:00Z"}], next_token="t1"
+            ),
+            _listing(
+                [{"name": "b", "size": "1", "updated": "2026-08-02T10:00:00Z"}], next_token="t2"
+            ),
         ]
     }
     session = FakeSession(pages)

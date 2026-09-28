@@ -1,11 +1,11 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from dc_status.model import DEGRADED, HEALTHY, UNKNOWN
 from dc_status.probes import probe_ingestion_lock, probe_ingestions
 from dc_status.rest import RestClient
 from tests.conftest import FakeResponse, FakeSession
 
-NOW = datetime(2026, 8, 5, 18, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 5, 18, 0, tzinfo=UTC)
 
 
 class FakeSpanner:
@@ -114,11 +114,18 @@ def test_no_history_is_unknown():
 
 
 def test_a_running_row_whose_workflow_failed_degrades():
-    rows = [{
-        "CreationTimestamp": "2026-08-05T17:50:00Z", "CompletionTimestamp": None,
-        "Status": "RUNNING", "Stage": "dataflow", "IngestionFailure": False,
-        "ExecutionTime": None, "Imports": 1, "WorkflowExecutionID": "exec-1",
-    }]
+    rows = [
+        {
+            "CreationTimestamp": "2026-08-05T17:50:00Z",
+            "CompletionTimestamp": None,
+            "Status": "RUNNING",
+            "Stage": "dataflow",
+            "IngestionFailure": False,
+            "ExecutionTime": None,
+            "Imports": 1,
+            "WorkflowExecutionID": "exec-1",
+        }
+    ]
     probe = probe_ingestions(_ctx(FakeSpanner(rows), _executions("FAILED")), now=NOW)
     assert probe.status == DEGRADED
     assert "workflow reported FAILED" in probe.detail
@@ -128,22 +135,36 @@ def test_a_long_stuck_running_row_degrades_even_with_no_workflow_signal():
     # A workflow that died without writing a terminal Status. Nothing is ACTIVE,
     # IngestionFailure is False, and the row says RUNNING — the shape that used to
     # report green indefinitely.
-    rows = [{
-        "CreationTimestamp": "2026-08-02T09:00:00Z", "CompletionTimestamp": None,
-        "Status": "RUNNING", "Stage": "dataflow", "IngestionFailure": False,
-        "ExecutionTime": None, "Imports": 1, "WorkflowExecutionID": "exec-9",
-    }]
+    rows = [
+        {
+            "CreationTimestamp": "2026-08-02T09:00:00Z",
+            "CompletionTimestamp": None,
+            "Status": "RUNNING",
+            "Stage": "dataflow",
+            "IngestionFailure": False,
+            "ExecutionTime": None,
+            "Imports": 1,
+            "WorkflowExecutionID": "exec-9",
+        }
+    ]
     probe = probe_ingestions(_ctx(FakeSpanner(rows), _executions("SUCCEEDED")), now=NOW)
     assert probe.status == DEGRADED
     assert "with no active workflow" in probe.detail
 
 
 def test_a_recent_running_row_is_healthy():
-    rows = [{
-        "CreationTimestamp": "2026-08-05T17:30:00Z", "CompletionTimestamp": None,
-        "Status": "RUNNING", "Stage": "preprocessing", "IngestionFailure": False,
-        "ExecutionTime": None, "Imports": 1, "WorkflowExecutionID": "exec-1",
-    }]
+    rows = [
+        {
+            "CreationTimestamp": "2026-08-05T17:30:00Z",
+            "CompletionTimestamp": None,
+            "Status": "RUNNING",
+            "Stage": "preprocessing",
+            "IngestionFailure": False,
+            "ExecutionTime": None,
+            "Imports": 1,
+            "WorkflowExecutionID": "exec-1",
+        }
+    ]
     probe = probe_ingestions(_ctx(FakeSpanner(rows), _executions("SUCCEEDED")), now=NOW)
     assert probe.status == HEALTHY
 

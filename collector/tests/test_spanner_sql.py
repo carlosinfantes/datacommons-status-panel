@@ -10,7 +10,9 @@ SESSION_NAME = "projects/p/instances/i/databases/d/sessions/S1"
 def _sql_response(fields, rows):
     return FakeResponse(
         payload={
-            "metadata": {"rowType": {"fields": [{"name": n, "type": {"code": c}} for n, c in fields]}},
+            "metadata": {
+                "rowType": {"fields": [{"name": n, "type": {"code": c}} for n, c in fields]}
+            },
             "rows": rows,
         }
     )

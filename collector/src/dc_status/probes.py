@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .model import (
     DEGRADED,
@@ -35,7 +35,11 @@ def probe_dc_service(ctx: ProbeContext) -> Probe:
     revision = service.get("latestReadyRevision", "") or ""
     image = _live_image(ctx, service, revision)
     status = HEALTHY if state == "CONDITION_SUCCEEDED" else DOWN
-    detail = "" if status == HEALTHY else f"{state or 'no terminal condition'}: {condition.get('message', '')}"
+    detail = (
+        ""
+        if status == HEALTHY
+        else f"{state or 'no terminal condition'}: {condition.get('message', '')}"
+    )
     return Probe(
         id="dc_service",
         status=status,
@@ -59,7 +63,7 @@ def _live_image(ctx: ProbeContext, service: dict, revision: str) -> str | None:
             # probe; the service template below still tells us the desired image.
             containers = []
     if not containers:
-        containers = ((service.get("template") or {}).get("containers") or [])
+        containers = (service.get("template") or {}).get("containers") or []
     if not containers:
         return None
     # In a multi-container Cloud Run service exactly one container declares ports:
@@ -164,7 +168,9 @@ def probe_counts(ctx, *, budget_seconds: float = COUNTS_BUDGET_SECONDS, workers:
     try:
         tables = sorted(list_tables(schema_session) & TABLE_ALLOWLIST)
     except Exception as exc:
-        return Probe(id="counts", status=UNKNOWN, detail=str(exc), data={"counts": {}, "unavailable": []})
+        return Probe(
+            id="counts", status=UNKNOWN, detail=str(exc), data={"counts": {}, "unavailable": []}
+        )
     finally:
         schema_session.close()
 
@@ -270,7 +276,7 @@ def _age_minutes(timestamp: str | None, now: datetime | None) -> int | None:
     parsed = parse_timestamp(timestamp)
     if parsed is None:
         return None
-    reference = now or datetime.now(timezone.utc)
+    reference = now or datetime.now(UTC)
     return int((reference - parsed).total_seconds() // 60)
 
 
@@ -321,13 +327,18 @@ def probe_ingestions(ctx, *, now: datetime | None = None, stale_after_hours: flo
 
     if latest["failure"] or status_text in {"FAILED", "CANCELLED"}:
         status = DEGRADED
-        notes.insert(0, f"the latest ingestion reported {latest['status']} at stage {latest['stage']}")
+        notes.insert(
+            0, f"the latest ingestion reported {latest['status']} at stage {latest['stage']}"
+        )
     elif workflow_text in {"FAILED", "CANCELLED", "CRASHED"}:
         # The row never reached a terminal Status but its own workflow did, and it
         # failed. Trust the workflow: a row left at RUNNING is how a crashed
         # ingestion hides from a status check.
         status = DEGRADED
-        notes.insert(0, f"the latest ingestion is {latest['status']} but its workflow reported {latest['workflow_state']}")
+        notes.insert(
+            0,
+            f"the latest ingestion is {latest['status']} but its workflow reported {latest['workflow_state']}",
+        )
     elif _any_active(executions):
         status = HEALTHY
         notes.insert(0, "an ingestion is running")
@@ -335,10 +346,15 @@ def probe_ingestions(ctx, *, now: datetime | None = None, stale_after_hours: flo
         age = _age_minutes(latest["creation"], now)
         if age is None:
             status = UNKNOWN
-            notes.insert(0, f"the latest ingestion is {latest['status']} and its age could not be read")
+            notes.insert(
+                0, f"the latest ingestion is {latest['status']} and its age could not be read"
+            )
         elif age > stale_after_hours * 60:
             status = DEGRADED
-            notes.insert(0, f"the latest ingestion has been {latest['status']} for {age} minutes with no active workflow")
+            notes.insert(
+                0,
+                f"the latest ingestion has been {latest['status']} for {age} minutes with no active workflow",
+            )
         else:
             status = HEALTHY
             notes.insert(0, f"an ingestion is {latest['status']}")
@@ -353,7 +369,9 @@ def probe_ingestions(ctx, *, now: datetime | None = None, stale_after_hours: flo
     )
 
 
-def probe_ingestion_lock(ctx, *, now: datetime | None = None, stale_after_hours: float = 2.0) -> Probe:
+def probe_ingestion_lock(
+    ctx, *, now: datetime | None = None, stale_after_hours: float = 2.0
+) -> Probe:
     spanner = ctx.spanner_factory()
     try:
         rows = spanner.query(_LOCK_SQL, staleness_seconds=10)
@@ -381,9 +399,8 @@ def probe_ingestion_lock(ctx, *, now: datetime | None = None, stale_after_hours:
         # Never claim "no workflow is active" when the API could not be asked:
         # that turns not knowing into a diagnosis, inside the status that raises
         # the alarm.
-        detail = (
-            f"the ingestion lock has been held for {age_minutes} minutes and "
-            + (workflow_detail or "no workflow is active")
+        detail = f"the ingestion lock has been held for {age_minutes} minutes and " + (
+            workflow_detail or "no workflow is active"
         )
     else:
         status, detail = HEALTHY, "the ingestion lock is held"
@@ -409,7 +426,7 @@ _PROVENANCE_SQL = "SELECT provenance, COUNT(*) AS Rows FROM TimeSeries GROUP BY 
 def _list_objects(ctx, prefix: str, max_pages: int) -> tuple[list[dict], bool]:
     items: list[dict] = []
     token: str | None = None
-    for page in range(max_pages):
+    for _ in range(max_pages):
         params = {
             "prefix": prefix,
             "maxResults": 1000,
@@ -450,8 +467,12 @@ def probe_data_sources(ctx, *, max_pages: int = 5) -> Probe:
             id="data_sources",
             status=UNKNOWN,
             detail="no data source prefixes are configured, so coverage is unknown",
-            data={"sources": [], "unmatched_provenances": [], "truncated": False,
-                  "rows_known": not provenance_detail},
+            data={
+                "sources": [],
+                "unmatched_provenances": [],
+                "truncated": False,
+                "rows_known": not provenance_detail,
+            },
         )
 
     sources: list[dict] = []

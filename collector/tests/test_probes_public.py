@@ -23,7 +23,9 @@ def _ctx(public):
 
 
 def test_dc_api_is_healthy_when_the_known_entity_resolves():
-    public = FakePublic((200, '{"data":{"country/GTM":{"arcs":{"name":{"nodes":[{"value":"Guatemala"}]}}}}}'))
+    public = FakePublic(
+        (200, '{"data":{"country/GTM":{"arcs":{"name":{"nodes":[{"value":"Guatemala"}]}}}}}')
+    )
     probe = probe_dc_api(_ctx(public))
     assert probe.status == HEALTHY
     assert "country/GTM" in public.urls[0]

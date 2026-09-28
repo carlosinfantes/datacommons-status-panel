@@ -1,8 +1,18 @@
 from dc_status.model import DOWN, HEALTHY, UNKNOWN, Probe
 from dc_status.probes import probe_schema, probe_version_consistency
 
-V111 = ["Edge", "ImportStatus", "ImportVersionHistory", "IngestionHistory", "IngestionLock",
-        "KeyValueStore", "Node", "NodeEmbedding", "Observation", "TimeSeries"]
+V111 = [
+    "Edge",
+    "ImportStatus",
+    "ImportVersionHistory",
+    "IngestionHistory",
+    "IngestionLock",
+    "KeyValueStore",
+    "Node",
+    "NodeEmbedding",
+    "Observation",
+    "TimeSeries",
+]
 
 
 class FakeSpanner:

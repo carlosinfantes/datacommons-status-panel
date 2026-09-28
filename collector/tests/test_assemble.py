@@ -1,5 +1,5 @@
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from dc_status.assemble import PROBES, ProbeSpec, _budget_ms, collect_all, collect_self
 from dc_status.cache import TTLCache
@@ -8,7 +8,7 @@ from dc_status.model import DEGRADED, DOWN, HEALTHY, UNKNOWN, Probe
 from dc_status.probes import COUNTS_BUDGET_SECONDS
 from dc_status.rest import PUBLIC_TIMEOUT_SECONDS
 
-NOW = datetime(2026, 8, 5, 18, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 5, 18, 0, tzinfo=UTC)
 
 
 def _config(peers=()):
@@ -89,9 +89,15 @@ def test_lifts_counts_tables_ingestions_and_sources_to_the_top_level():
         _spec("schema", HEALTHY, {"tables": ["Node"]}),
         _spec("counts", HEALTHY, {"counts": {"Node": 241}, "unavailable": []}),
         _spec("ingestions", HEALTHY, {"ingestions": [{"status": "SUCCESS"}]}),
-        _spec("data_sources", HEALTHY, {"sources": [{"prefix": "agency-a"}], "unmatched_provenances": []}),
+        _spec(
+            "data_sources",
+            HEALTHY,
+            {"sources": [{"prefix": "agency-a"}], "unmatched_provenances": []},
+        ),
     )
-    environment = collect_self(_config(), _clients(), TTLCache(), now=NOW, probes=probes)["environments"][0]
+    environment = collect_self(_config(), _clients(), TTLCache(), now=NOW, probes=probes)[
+        "environments"
+    ][0]
     assert environment["dcp_version"] == "1.1.1"
     assert environment["schema_tables"] == ["Node"]
     assert environment["counts"] == {"Node": 241}
@@ -193,8 +199,10 @@ def test_a_probe_reports_whichever_deadline_actually_binds_it():
 def test_a_derived_check_reports_no_budget():
     # version_consistency does no I/O and is never raced against the clock, so it
     # has no budget to report and the page must not draw it one.
-    probes = (_spec("dc_service", HEALTHY, data={"dcp_version": "1.1.0"}),
-              _spec("schema", HEALTHY, data={"tables": ["TimeSeries"]}))
+    probes = (
+        _spec("dc_service", HEALTHY, data={"dcp_version": "1.1.0"}),
+        _spec("schema", HEALTHY, data={"tables": ["TimeSeries"]}),
+    )
     document = collect_self(_config(), _clients(), TTLCache(), now=NOW, probes=probes)
     derived = next(
         probe

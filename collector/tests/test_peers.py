@@ -8,7 +8,9 @@ PEER = PeerConfig(id="staging", label="Staging", url="https://staging.example")
 
 
 def test_sends_an_id_token_minted_for_the_peer_audience():
-    session = FakeSession({"/api/v1/self": FakeResponse(payload={"environments": [{"id": "staging"}]})})
+    session = FakeSession(
+        {"/api/v1/self": FakeResponse(payload={"environments": [{"id": "staging"}]})}
+    )
     audiences = []
 
     def token_fetcher(audience):
@@ -28,7 +30,7 @@ def test_requests_the_self_endpoint_of_the_peer():
 
 def test_a_non_200_from_the_peer_raises():
     session = FakeSession({"/api/v1/self": FakeResponse(status_code=403, payload={})})
-    with pytest.raises(Exception):
+    with pytest.raises(RuntimeError):
         fetch_peer(PEER, token_fetcher=lambda _a: "t", session=session)
 
 
@@ -36,5 +38,5 @@ def test_a_failure_to_mint_a_token_raises():
     def token_fetcher(_audience):
         raise RuntimeError("no metadata server")
 
-    with pytest.raises(Exception):
+    with pytest.raises(RuntimeError):
         fetch_peer(PEER, token_fetcher=token_fetcher, session=FakeSession({}))

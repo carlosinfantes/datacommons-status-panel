@@ -1,4 +1,4 @@
-from datetime import timezone
+from datetime import UTC
 
 from dc_status.timestamps import parse_timestamp
 
@@ -6,7 +6,7 @@ from dc_status.timestamps import parse_timestamp
 def test_parses_microsecond_precision_with_z():
     parsed = parse_timestamp("2026-08-05T14:14:00.825993Z")
     assert parsed.year == 2026 and parsed.minute == 14
-    assert parsed.tzinfo == timezone.utc
+    assert parsed.tzinfo == UTC
 
 
 def test_parses_nanosecond_precision_by_truncating():
