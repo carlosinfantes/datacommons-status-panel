@@ -1832,9 +1832,59 @@ async function load({ fresh = false, retry = true } = {}) {
   render(body);
 }
 
+/* ---------- theme ----------
+
+   System follows the operating system through prefers-color-scheme; Light and
+   Dark stamp data-theme on <html>, which the stylesheet lets win both ways.
+   The choice is stored on this device only. `?theme=` previews a theme for
+   one visit without storing it. */
+
+const THEME_KEY = "dc-status-theme";
+const THEMES = ["system", "light", "dark"];
+
+function storedTheme() {
+  try {
+    const value = window.localStorage.getItem(THEME_KEY);
+    return THEMES.includes(value) ? value : "system";
+  } catch (error) {
+    return "system";
+  }
+}
+
+function requestedTheme() {
+  const value = new URLSearchParams(window.location.search).get("theme");
+  return THEMES.includes(value) ? value : null;
+}
+
+function applyTheme(theme) {
+  const root = doc.documentElement;
+  if (theme === "light" || theme === "dark") root.dataset.theme = theme;
+  else delete root.dataset.theme;
+}
+
+function wireTheme(initial) {
+  const group = doc.getElementById("theme");
+  group.querySelectorAll("input[name=theme]").forEach((input) => {
+    input.checked = input.value === initial;
+    input.addEventListener("change", () => {
+      if (!input.checked) return;
+      applyTheme(input.value);
+      try {
+        window.localStorage.setItem(THEME_KEY, input.value);
+      } catch (error) {
+        // Storage can be off; the choice still holds for this visit.
+      }
+    });
+  });
+}
+
+const initialTheme = requestedTheme() || storedTheme();
+applyTheme(initialTheme);
+
 /* ---------- wiring ---------- */
 
 function start() {
+  wireTheme(initialTheme);
   doc.getElementById("refresh").addEventListener("click", () => load({ fresh: true }));
 
   doc.getElementById("toggle-details").addEventListener("click", (event) => {
@@ -1861,4 +1911,5 @@ function start() {
   load();
 }
 
-start();
+if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", start);
+else start();

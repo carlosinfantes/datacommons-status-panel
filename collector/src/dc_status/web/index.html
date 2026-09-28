@@ -23,8 +23,9 @@
     <link rel="preload" href="/static/fonts/plex-sans-var.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/static/fonts/plex-mono-400.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/static/styles.css" />
-    <!-- Deferred, so it runs once the document is parsed. -->
-    <script src="/static/app.js" defer></script>
+    <!-- Not deferred: it applies the stored theme before the first paint, then
+         waits for the document before building anything. -->
+    <script src="/static/app.js"></script>
   </head>
   <body>
     <div class="readout" id="readout">
@@ -42,6 +43,21 @@
           <span class="bar__auto">auto-refresh <span class="bar__figure">60 s</span></span>
         </p>
         <div class="bar__controls">
+          <fieldset class="theme" id="theme">
+            <legend class="visually-hidden">Theme</legend>
+            <label class="theme__option">
+              <input type="radio" name="theme" value="system" checked />
+              <span>System</span>
+            </label>
+            <label class="theme__option">
+              <input type="radio" name="theme" value="light" />
+              <span>Light</span>
+            </label>
+            <label class="theme__option">
+              <input type="radio" name="theme" value="dark" />
+              <span>Dark</span>
+            </label>
+          </fieldset>
           <button id="refresh" type="button" class="button">Refresh</button>
         </div>
       </header>

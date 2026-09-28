@@ -108,8 +108,12 @@
   --page-max: 76rem;
 }
 
+/* Dark is its own set of steps, validated against the dark surface. The media
+   query covers "System"; the data-theme stamp covers an explicit choice and
+   wins both ways: the :not() guard lets Light beat an OS in dark mode, and
+   :where() keeps the query's specificity below the stamp. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:where(:not([data-theme="light"])) {
     color-scheme: dark;
 
     --surface: #17171a;
@@ -127,7 +131,53 @@
     --status-warning: #e0a63c;
     --status-critical: #f0685c;
     --status-unknown: #8f8d86;
+
+    /* The same eight hues stepped for the dark surface, not an inversion:
+       every slot inside OKLCH L 0.48-0.67 and over 3:1 on both dark planes.
+       Worst adjacent CVD dE 8.4, normal-vision dE 19.3. */
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+    --series-other: #5c5b62;
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --surface: #17171a;
+  --page: #0e0e10;
+  --text-primary: #f4f4f1;
+  --text-secondary: #b4b2aa;
+  --text-muted: #8f8d86;
+  --gridline: #2a2a2d;
+  --baseline: #45444a;
+  --control-border: #8f8d86;
+  --wash: #2e2e33;
+  --link: #8ab8f5;
+
+  --status-good: #45c46a;
+  --status-warning: #e0a63c;
+  --status-critical: #f0685c;
+  --status-unknown: #8f8d86;
+
+  /* The same eight hues stepped for the dark surface, not an inversion:
+     every slot inside OKLCH L 0.48-0.67 and over 3:1 on both dark planes.
+     Worst adjacent CVD dE 8.4, normal-vision dE 19.3. */
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+  --series-other: #5c5b62;
 }
 
 * {
@@ -290,6 +340,55 @@ body {
   opacity: 0.5;
   cursor: default;
   transform: none;
+}
+
+/* Theme: three options in one bordered control. Native radios, so arrow
+   keys move between them and the group is announced as one choice. */
+.theme {
+  display: inline-flex;
+  margin: 0;
+  padding: 1px;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  min-width: 0;
+}
+
+.theme__option {
+  position: relative;
+  display: inline-flex;
+}
+
+.theme__option input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.theme__option span {
+  padding: 2px var(--space-2);
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.theme__option input:checked + span {
+  background: var(--text-primary);
+  color: var(--page);
+}
+
+.theme__option input:focus-visible + span {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .theme__option input:not(:checked):hover + span {
+    background: var(--wash);
+    color: var(--text-primary);
+  }
 }
 
 /* ---------- body ---------- */
