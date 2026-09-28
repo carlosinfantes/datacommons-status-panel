@@ -21,7 +21,7 @@ import json
 import os
 import sys
 
-from .assemble import collect_all, collect_self
+from .assemble import collect_self
 from .cache import TTLCache
 from .clients import build_clients
 from .config import ConfigError, load_config, load_env_file
@@ -30,7 +30,6 @@ from .config import ConfigError, load_config, load_env_file
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="dc_status.cli", description="Print the status document")
     parser.add_argument("--env-file", help="KEY=VALUE file layered over the process environment")
-    parser.add_argument("--all", action="store_true", help="include configured peers")
     parser.add_argument("--indent", type=int, default=2)
     args = parser.parse_args(argv)
 
@@ -46,12 +45,7 @@ def main(argv: list[str] | None = None) -> int:
 
     clients = build_clients(config)
     cache = TTLCache()
-    if args.all:
-        from .peers import fetch_peer
-
-        document = collect_all(config, clients, cache, fetch_peer)
-    else:
-        document = collect_self(config, clients, cache)
+    document = collect_self(config, clients, cache)
     print(json.dumps(document, indent=args.indent, sort_keys=True))
     return 0
 

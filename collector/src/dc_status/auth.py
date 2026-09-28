@@ -24,9 +24,11 @@ backstop behind it.
 Authorisation is deliberately not re-implemented here. Once an IAP assertion
 verifies, IAP has already decided the caller holds
 `roles/iap.httpsResourceAccessor`, and copying that list into an env var would
-only let the two drift apart. The machine door is different: a plain ID token
-proves who the caller is and nothing about what they may do, so those callers
-are named explicitly in `DCS_ALLOWED_CALLERS`.
+only let the two drift apart.
+
+There is exactly one door. A bearer ID token is not a way in, whoever minted
+it: it proves who the caller is and nothing about what they may do, and a
+second door is a second thing to get wrong.
 """
 
 from __future__ import annotations
@@ -37,14 +39,12 @@ from collections.abc import Mapping
 from .config import AuthConfig
 from .sanitize import sanitize
 
-# IAP signs its assertions with its own key set and its own issuer, so the two
-# verifications below cannot share either.
+# IAP signs its assertions with its own key set and its own issuer, not Google's
+# OAuth ones, so both are named explicitly.
 _IAP_CERTS_URL = "https://www.gstatic.com/iap/verify/public_key"
 _IAP_ISSUER = "https://cloud.google.com/iap"
-_GOOGLE_ISSUERS = frozenset({"https://accounts.google.com", "accounts.google.com"})
 
 _IAP_HEADER = "HTTP_X_GOOG_IAP_JWT_ASSERTION"
-_AUTHORIZATION = "HTTP_AUTHORIZATION"
 
 _LOG = logging.getLogger(__name__)
 
@@ -56,39 +56,20 @@ class Denied(Exception):
 def authorize(environ: Mapping[str, str], config: AuthConfig, verifier=None) -> str:
     """Return the verified caller's email, or raise Denied.
 
-    The two doors are checked in the order a request is likely to arrive: a
-    browser coming through IAP carries an assertion, a peer panel fanning in
-    carries a bearer ID token. A request carrying neither never reaches a
-    verifier.
+    A request with no IAP assertion never reaches a verifier. Anything else it
+    carries, an Authorization header included, is ignored.
     """
     if not config.require:
         return "unverified"
 
-    verifier = verifier or _default_verifier()
-
     assertion = environ.get(_IAP_HEADER, "").strip()
-    if assertion:
-        if not config.iap_enabled:
-            raise _deny("an IAP assertion arrived but DCS_IAP_AUDIENCE is unset")
-        payload = _verify(verifier.iap, assertion, config.iap_audience, "IAP assertion")
-        return _identity(payload, issuers={_IAP_ISSUER})
-
-    token = _bearer(environ)
-    if token:
-        if not config.callers_enabled:
-            raise _deny("a bearer token arrived but no caller allowlist is configured")
-        payload = _verify(verifier.id_token, token, config.self_audience, "ID token")
-        email = _identity(payload, issuers=_GOOGLE_ISSUERS)
-        if email not in config.allowed_callers:
-            raise _deny(f"{email} is not in DCS_ALLOWED_CALLERS")
-        return email
-
-    raise _deny("no IAP assertion and no bearer token")
-
-
-def _bearer(environ: Mapping[str, str]) -> str:
-    scheme, _, token = environ.get(_AUTHORIZATION, "").partition(" ")
-    return token.strip() if scheme.lower() == "bearer" else ""
+    if not assertion:
+        raise _deny("no IAP assertion")
+    if not config.iap_enabled:
+        raise _deny("an IAP assertion arrived but DCS_IAP_AUDIENCE is unset")
+    verifier = verifier or _default_verifier()
+    payload = _verify(verifier.iap, assertion, config.iap_audience, "IAP assertion")
+    return _identity(payload, issuers={_IAP_ISSUER})
 
 
 def _verify(verify, token: str, audience: str, kind: str) -> Mapping:
@@ -144,9 +125,6 @@ def _default_verifier():
                 return google_id_token.verify_token(
                     token, request, audience=audience, certs_url=_IAP_CERTS_URL
                 )
-
-            def id_token(self, token: str, audience: str) -> Mapping:
-                return google_id_token.verify_oauth2_token(token, request, audience=audience)
 
         _DEFAULT_VERIFIER = _GoogleVerifier()
     return _DEFAULT_VERIFIER

@@ -22,24 +22,16 @@ _IAP_ISSUER = "https://cloud.google.com/iap"
 
 def _ungated():
     """For the tests that are about routing, not about access."""
-    return AuthConfig(require=False, iap_audience="", self_audience="", allowed_callers=frozenset())
+    return AuthConfig(require=False, iap_audience="")
 
 
 def _gated():
-    return AuthConfig(
-        require=True,
-        iap_audience="/projects/1/apps/p",
-        self_audience="https://panel.example",
-        allowed_callers=frozenset(),
-    )
+    return AuthConfig(require=True, iap_audience="/projects/1/apps/p")
 
 
 class _AcceptingVerifier:
     def iap(self, _token, _audience):
         return {"iss": _IAP_ISSUER, "email": "admin@example.org"}
-
-    def id_token(self, _token, _audience):  # pragma: no cover - not reached here
-        raise AssertionError("the IAP door should have been taken")
 
 
 def _config():
@@ -57,7 +49,6 @@ def _config():
         frontend_url="https://www.example",
         data_source_prefixes=(),
         input_prefix="ingestion/input/",
-        peers=(),
         counts_cache_ttl_seconds=300,
         schema_cache_ttl_seconds=3600,
     )
@@ -81,7 +72,6 @@ def _app(document=None, replay=None, auth=None, verifier=None):
         config=_config(),
         clients=object(),
         collect_self_fn=lambda *a, **k: document,
-        collect_all_fn=lambda *a, **k: document,
         replay=replay,
         auth=auth or _ungated(),
         verifier=verifier,
@@ -103,12 +93,12 @@ def test_self_endpoint_returns_the_document():
 
 def test_a_partial_document_sets_the_partial_header():
     document = {"overall": "degraded", "partial": True, "environments": []}
-    captured, _body = _call(_app(document), "/api/v1/all")
+    captured, _body = _call(_app(document), "/api/v1/self")
     assert captured["headers"]["X-Status-Partial"] == "true"
 
 
 def test_a_complete_document_does_not_set_the_partial_header():
-    captured, _body = _call(_app(), "/api/v1/all")
+    captured, _body = _call(_app(), "/api/v1/self")
     assert "X-Status-Partial" not in captured["headers"]
 
 
@@ -120,7 +110,6 @@ def test_a_collector_failure_still_answers_200():
         config=_config(),
         clients=object(),
         collect_self_fn=boom,
-        collect_all_fn=boom,
         auth=_ungated(),
     )
     captured, body = _call(app, "/api/v1/self")
@@ -162,6 +151,11 @@ def test_the_page_css_and_js_are_not_cached_like_the_fonts():
         assert "Cache-Control" not in captured["headers"]
 
 
+def test_the_peer_fan_in_route_is_gone():
+    captured, _body = _call(_app(), "/api/v1/all")
+    assert captured["status"].startswith("404")
+
+
 def test_path_traversal_is_refused():
     captured, _body = _call(_app(), "/static/../../etc/passwd")
     assert captured["status"].startswith("404")
@@ -191,11 +185,10 @@ def test_replay_short_circuits_the_collector(tmp_path):
         config=_config(),
         clients=object(),
         collect_self_fn=boom,
-        collect_all_fn=boom,
         replay=str(replay_file),
         auth=_ungated(),
     )
-    _captured, body = _call(app, "/api/v1/all")
+    _captured, body = _call(app, "/api/v1/self")
     assert json.loads(body)["overall"] == "down"
 
 
@@ -212,7 +205,7 @@ def test_an_app_cannot_be_built_without_an_access_policy():
 
 def test_an_unauthenticated_request_for_the_document_is_refused():
     app = _app(auth=_gated(), verifier=_AcceptingVerifier())
-    for path in ("/api/v1/self", "/api/v1/all"):
+    for path in ("/api/v1/self",):
         captured, body = _call(app, path)
         assert captured["status"].startswith("403")
         # Nothing but the refusal: no hint about which credential was missing.

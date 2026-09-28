@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -45,13 +44,6 @@ class ConfigError(Exception):
 
 
 @dataclass(frozen=True)
-class PeerConfig:
-    id: str
-    label: str
-    url: str
-
-
-@dataclass(frozen=True)
 class EnvConfig:
     env_id: str
     env_label: str
@@ -66,38 +58,26 @@ class EnvConfig:
     frontend_url: str
     data_source_prefixes: tuple[str, ...]
     input_prefix: str
-    peers: tuple[PeerConfig, ...]
     counts_cache_ttl_seconds: int
     schema_cache_ttl_seconds: int
 
 
 @dataclass(frozen=True)
 class AuthConfig:
-    """Who may read the document. Two doors, each opened explicitly.
+    """Who may read the document. IAP is the only way in.
 
-    `iap_audience` opens the browser door: a request carrying an IAP assertion
-    for that audience is a human IAP has already authorised. `allowed_callers`
-    together with `self_audience` open the machine door, for peer panels fanning
-    in with an ID token minted for this service's own URL.
-
-    Neither is derived, because neither can be. The IAP audience is a property
-    of the deployed service, and the peers are a deployment topology decision.
+    `iap_audience` names the IAP-protected resource this service sits behind: a
+    request carrying an IAP assertion for that audience is a human IAP has
+    already authorised. It is not derived, because it cannot be: it is a property
+    of the deployed backend service, known only once IAP is in front of it.
     """
 
     require: bool
     iap_audience: str
-    self_audience: str
-    allowed_callers: frozenset[str]
 
     @property
     def iap_enabled(self) -> bool:
         return bool(self.iap_audience)
-
-    @property
-    def callers_enabled(self) -> bool:
-        # An allowlist without an audience cannot be enforced: the ID token would
-        # be accepted whoever it was minted for.
-        return bool(self.allowed_callers and self.self_audience)
 
 
 def load_auth_config(environ: Mapping[str, str]) -> AuthConfig:
@@ -109,22 +89,16 @@ def load_auth_config(environ: Mapping[str, str]) -> AuthConfig:
     else:
         raise ConfigError(f"{_PREFIX}REQUIRE_AUTH must be a boolean, got {raw!r}")
 
-    config = AuthConfig(
-        require=require,
-        iap_audience=_value(environ, "IAP_AUDIENCE"),
-        self_audience=_value(environ, "SELF_AUDIENCE").rstrip("/"),
-        allowed_callers=frozenset(_split_list(_value(environ, "ALLOWED_CALLERS").lower())),
-    )
-    if require and not (config.iap_enabled or config.callers_enabled):
+    config = AuthConfig(require=require, iap_audience=_value(environ, "IAP_AUDIENCE"))
+    if require and not config.iap_enabled:
         # Failing here rather than 403ing every request: a panel nobody can reach
         # is a misconfiguration, and it should say so once instead of looking
         # like an access problem to every admin who tries.
         raise ConfigError(
-            f"{_PREFIX}REQUIRE_AUTH is on but no credential would be accepted. Set "
-            f"{_PREFIX}IAP_AUDIENCE for browser access through IAP, and/or "
-            f"{_PREFIX}ALLOWED_CALLERS with {_PREFIX}SELF_AUDIENCE for peer fan-in. "
-            f"Set {_PREFIX}REQUIRE_AUTH=false only where the perimeter is the only "
-            f"control, such as a local run."
+            f"{_PREFIX}REQUIRE_AUTH is on but {_PREFIX}IAP_AUDIENCE is unset, so no "
+            f"request could ever be accepted. Set {_PREFIX}IAP_AUDIENCE to the "
+            f"audience of the IAP-protected backend. Set {_PREFIX}REQUIRE_AUTH=false "
+            f"only where the perimeter is the only control, such as a local run."
         )
     return config
 
@@ -165,7 +139,6 @@ def load_config(environ: Mapping[str, str]) -> EnvConfig:
         frontend_url=value("FRONTEND_URL"),
         data_source_prefixes=_split_list(value("DATA_SOURCE_PREFIXES")),
         input_prefix=value("INPUT_PREFIX") or "ingestion/input/",
-        peers=_parse_peers(value("PEERS")),
         counts_cache_ttl_seconds=int_value("COUNTS_CACHE_TTL_SECONDS", 300),
         schema_cache_ttl_seconds=int_value("SCHEMA_CACHE_TTL_SECONDS", 3600),
     )
@@ -173,29 +146,6 @@ def load_config(environ: Mapping[str, str]) -> EnvConfig:
 
 def _split_list(raw: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in raw.split(",") if part.strip())
-
-
-def _parse_peers(raw: str) -> tuple[PeerConfig, ...]:
-    if not raw:
-        return ()
-    try:
-        entries = json.loads(raw)
-    except ValueError as exc:
-        raise ConfigError(f"{_PREFIX}PEERS is not valid JSON: {exc}") from None
-    if not isinstance(entries, list):
-        raise ConfigError(f"{_PREFIX}PEERS must be a JSON array")
-    peers = []
-    for entry in entries:
-        if not isinstance(entry, dict) or not entry.get("id") or not entry.get("url"):
-            raise ConfigError(f"{_PREFIX}PEERS entries need at least an id and a url")
-        peers.append(
-            PeerConfig(
-                id=entry["id"],
-                label=entry.get("label") or entry["id"],
-                url=entry["url"].rstrip("/"),
-            )
-        )
-    return tuple(peers)
 
 
 def load_env_file(path: str) -> dict[str, str]:

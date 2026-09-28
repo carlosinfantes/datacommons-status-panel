@@ -55,3 +55,11 @@ def test_a_configuration_error_exits_nonzero_with_a_message(tmp_path, capsys):
     env_file.write_text("DCS_ENV_ID=staging\n")
     assert cli.main(["--env-file", str(env_file)]) == 2
     assert "DCS_PROJECT_ID" in capsys.readouterr().err
+
+
+def test_the_peer_flag_is_gone():
+    import pytest
+
+    with pytest.raises(SystemExit) as caught:
+        cli.main(["--all"])
+    assert caught.value.code == 2

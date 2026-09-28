@@ -20,7 +20,7 @@ import json
 import os
 from importlib.resources import files
 
-from .assemble import collect_all, collect_self
+from .assemble import collect_self
 from .auth import Denied, authorize
 from .cache import TTLCache
 from .config import load_auth_config, load_config
@@ -52,7 +52,6 @@ def create_app(
     clients=None,
     cache=None,
     collect_self_fn=collect_self,
-    collect_all_fn=collect_all,
     replay: str | None = None,
     *,
     auth,
@@ -62,15 +61,11 @@ def create_app(
     built without stating who may read it."""
     cache = cache or TTLCache()
 
-    def _document(include_peers: bool) -> tuple[dict, bool]:
+    def _document() -> tuple[dict, bool]:
         try:
             if replay:
                 with open(replay, encoding="utf-8") as handle:
                     document = json.load(handle)
-            elif include_peers:
-                from .peers import fetch_peer
-
-                document = collect_all_fn(config, clients, cache, fetch_peer)
             else:
                 document = collect_self_fn(config, clients, cache)
         except Exception as exc:
@@ -104,8 +99,8 @@ def create_app(
             # unauthenticated caller which door they got closest to.
             return respond("403 Forbidden", _JSON, json.dumps({"error": "forbidden"}).encode())
 
-        if path in ("/api/v1/self", "/api/v1/all"):
-            document, partial = _document(path.endswith("/all"))
+        if path == "/api/v1/self":
+            document, partial = _document()
             extra = {"X-Status-Partial": "true"} if partial else {}
             extra["Cache-Control"] = "no-store"
             return respond("200 OK", _JSON, json.dumps(document).encode(), extra)

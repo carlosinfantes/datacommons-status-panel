@@ -15,9 +15,9 @@
 import threading
 from datetime import UTC, datetime
 
-from dc_status.assemble import PROBES, ProbeSpec, _budget_ms, collect_all, collect_self
+from dc_status.assemble import PROBES, ProbeSpec, _budget_ms, collect_self
 from dc_status.cache import TTLCache
-from dc_status.config import EnvConfig, PeerConfig
+from dc_status.config import EnvConfig
 from dc_status.model import DEGRADED, DOWN, HEALTHY, UNKNOWN, Probe
 from dc_status.probes import COUNTS_BUDGET_SECONDS
 from dc_status.rest import PUBLIC_TIMEOUT_SECONDS
@@ -25,7 +25,7 @@ from dc_status.rest import PUBLIC_TIMEOUT_SECONDS
 NOW = datetime(2026, 8, 5, 18, 0, tzinfo=UTC)
 
 
-def _config(peers=()):
+def _config():
     return EnvConfig(
         env_id="prod",
         env_label="Production",
@@ -40,7 +40,6 @@ def _config(peers=()):
         frontend_url="https://www.example",
         data_source_prefixes=("agency-a",),
         input_prefix="ingestion/input/",
-        peers=peers,
         counts_cache_ttl_seconds=300,
         schema_cache_ttl_seconds=3600,
     )
@@ -133,61 +132,6 @@ def test_cached_probes_are_not_rerun_within_their_ttl():
     assert len(calls) == 1
 
 
-def test_collect_all_appends_the_peer_environment():
-    peer = PeerConfig(id="staging", label="Staging", url="https://staging.example")
-    probes = (_spec("dc_api", HEALTHY),)
-
-    def fetch_peer(peer_config):
-        return {
-            "environments": [
-                {"id": peer_config.id, "label": peer_config.label, "overall": HEALTHY, "probes": []}
-            ]
-        }
-
-    document = collect_all(
-        _config(peers=(peer,)), _clients(), TTLCache(), fetch_peer, now=NOW, probes=probes
-    )
-    assert [env["id"] for env in document["environments"]] == ["prod", "staging"]
-    assert document["environments"][1]["self"] is False
-
-
-def test_an_unreachable_peer_becomes_an_unknown_card_without_touching_the_local_one():
-    peer = PeerConfig(id="staging", label="Staging", url="https://staging.example")
-    probes = (_spec("dc_api", HEALTHY),)
-
-    def fetch_peer(_peer_config):
-        raise RuntimeError("connection refused")
-
-    document = collect_all(
-        _config(peers=(peer,)), _clients(), TTLCache(), fetch_peer, now=NOW, probes=probes
-    )
-    local, remote = document["environments"]
-    assert local["overall"] == HEALTHY
-    assert remote["reachable"] is False
-    assert remote["overall"] == UNKNOWN
-    assert document["partial"] is True
-
-
-def test_a_peer_that_answers_without_an_overall_does_not_blank_the_page():
-    # A peer that is itself degraded returns 200 with environments: [] — valid by
-    # this system's own contract. The local card must survive it.
-    peer = PeerConfig(id="staging", label="Staging", url="https://staging.example")
-    probes = (_spec("dc_api", HEALTHY),)
-
-    document = collect_all(
-        _config(peers=(peer,)),
-        _clients(),
-        TTLCache(),
-        lambda _peer: {"overall": "unknown", "partial": True, "environments": []},
-        now=NOW,
-        probes=probes,
-    )
-    local, remote = document["environments"]
-    assert local["overall"] == HEALTHY
-    assert local["probes"]
-    assert remote["overall"] == UNKNOWN
-
-
 def test_every_probe_reports_the_budget_it_was_measured_against():
     # elapsed_ms alone cannot say whether a check is comfortable or one second from
     # being dropped, so the deadline travels with it.
@@ -249,53 +193,3 @@ def test_a_probe_that_outlasts_its_deadline_reports_the_whole_budget_spent(monke
     assert probe["elapsed_ms"] == 200
     assert "did not answer" in probe["detail"]
     assert document["partial"] is True
-
-
-def test_a_peer_that_outlasts_the_budget_does_not_hold_up_the_probe():
-    # Same shape as probe_counts's budget test: the fake blocks until the test
-    # releases it, exercising the real future.result(timeout=...) path and the
-    # shutdown(wait=False) that keeps a straggler from stalling the page.
-    peer = PeerConfig(id="staging", label="Staging", url="https://staging.example")
-    probes = (_spec("dc_api", HEALTHY),)
-    release = threading.Event()
-
-    def fetch_peer(_peer_config):
-        release.wait(timeout=5)
-        return {"environments": [{"overall": HEALTHY}]}
-
-    try:
-        document = collect_all(
-            _config(peers=(peer,)),
-            _clients(),
-            TTLCache(),
-            fetch_peer,
-            now=NOW,
-            probes=probes,
-            peer_deadline_seconds=0.2,
-        )
-    finally:
-        release.set()  # let the straggler finish before the test process exits
-
-    local, remote = document["environments"]
-    assert local["overall"] == HEALTHY
-    assert remote["reachable"] is False
-    assert remote["overall"] == UNKNOWN
-    assert document["partial"] is True
-
-
-def test_an_unreachable_peers_detail_is_sanitized():
-    # The one place sanitisation is genuinely load-bearing in this module. A peer
-    # failure becomes a plain dict that goes straight into the document — it never
-    # passes through Probe.to_dict(), so nothing else would redact it.
-    peer = PeerConfig(id="staging", label="Staging", url="https://staging.example")
-    probes = (_spec("dc_api", HEALTHY),)
-
-    def fetch_peer(_peer_config):
-        raise RuntimeError("refused by proxy, token was Bearer ya29.leaked")
-
-    document = collect_all(
-        _config(peers=(peer,)), _clients(), TTLCache(), fetch_peer, now=NOW, probes=probes
-    )
-    remote = document["environments"][1]
-    assert "ya29" not in remote["detail"]
-    assert "[REDACTED]" in remote["detail"]

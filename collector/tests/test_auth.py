@@ -20,8 +20,6 @@ from dc_status.config import AuthConfig
 _IAP_ISSUER = "https://cloud.google.com/iap"
 _GOOGLE_ISSUER = "https://accounts.google.com"
 
-_PEER_SA = "panel-staging@example.iam.gserviceaccount.com"
-
 
 class RecordingVerifier:
     """Accepts whatever it is given, and records the audience it was asked for.
@@ -30,35 +28,22 @@ class RecordingVerifier:
     it would pass against a verifier that ignored it.
     """
 
-    def __init__(self, iap_payload=None, id_token_payload=None):
+    def __init__(self, iap_payload=None):
         self._iap_payload = iap_payload or {"iss": _IAP_ISSUER, "email": "admin@example.org"}
-        self._id_token_payload = id_token_payload or {"iss": _GOOGLE_ISSUER, "email": _PEER_SA}
         self.audiences = []
 
     def iap(self, _token, audience):
         self.audiences.append(audience)
         return self._iap_payload
 
-    def id_token(self, _token, audience):
-        self.audiences.append(audience)
-        return self._id_token_payload
-
 
 class RejectingVerifier:
     def iap(self, token, _audience):
         raise ValueError(f"Could not verify token: {token}")
 
-    def id_token(self, token, _audience):
-        raise ValueError(f"Could not verify token: {token}")
-
 
 def _config(**overrides):
-    base = dict(
-        require=True,
-        iap_audience="/projects/1/apps/example",
-        self_audience="https://panel.example",
-        allowed_callers=frozenset({_PEER_SA}),
-    )
+    base = dict(require=True, iap_audience="/projects/1/apps/example")
     return AuthConfig(**{**base, **overrides})
 
 
@@ -120,44 +105,13 @@ def test_an_assertion_is_denied_when_no_iap_audience_is_configured():
         authorize(_iap(), _config(iap_audience=""), RecordingVerifier())
 
 
-def test_an_allowed_caller_gets_in_with_a_bearer_token():
-    assert authorize(_bearer(), _config(), RecordingVerifier()) == _PEER_SA
-
-
-def test_the_bearer_token_is_checked_against_this_service_url():
+def test_a_bearer_token_is_never_a_way_in():
+    # The machine door (peer panels presenting an ID token) is gone: IAP is the
+    # only way in. A bearer token must not even reach a verifier.
     verifier = RecordingVerifier()
-    authorize(_bearer(), _config(), verifier)
-    assert verifier.audiences == ["https://panel.example"]
-
-
-def test_a_caller_outside_the_allowlist_is_denied():
-    verifier = RecordingVerifier(
-        id_token_payload={
-            "iss": _GOOGLE_ISSUER,
-            "email": "someone-else@example.iam.gserviceaccount.com",
-        }
-    )
     with pytest.raises(Denied):
         authorize(_bearer(), _config(), verifier)
-
-
-def test_the_allowlist_comparison_ignores_case():
-    verifier = RecordingVerifier(
-        id_token_payload={"iss": _GOOGLE_ISSUER, "email": _PEER_SA.upper()}
-    )
-    assert authorize(_bearer(), _config(), verifier) == _PEER_SA
-
-
-def test_a_bearer_token_is_denied_when_no_allowlist_is_configured():
-    with pytest.raises(Denied):
-        authorize(_bearer(), _config(allowed_callers=frozenset()), RecordingVerifier())
-
-
-def test_a_bearer_token_is_denied_when_no_self_audience_is_configured():
-    # Without an audience the token would be accepted whoever minted it for
-    # whatever service, which is exactly the replay this check exists to stop.
-    with pytest.raises(Denied):
-        authorize(_bearer(), _config(self_audience=""), RecordingVerifier())
+    assert verifier.audiences == []
 
 
 def test_a_non_bearer_authorization_header_is_ignored():
@@ -167,7 +121,7 @@ def test_a_non_bearer_authorization_header_is_ignored():
         )
 
 
-def test_the_iap_door_wins_when_both_credentials_arrive():
+def test_an_iap_assertion_is_honoured_even_alongside_a_bearer_token():
     verifier = RecordingVerifier()
     assert authorize({**_iap(), **_bearer()}, _config(), verifier) == "admin@example.org"
 
@@ -175,9 +129,6 @@ def test_the_iap_door_wins_when_both_credentials_arrive():
 def test_a_claim_set_that_is_not_a_mapping_is_denied():
     class Weird:
         def iap(self, _token, _audience):
-            return "not-a-claim-set"
-
-        def id_token(self, _token, _audience):
             return "not-a-claim-set"
 
     with pytest.raises(Denied):
@@ -190,6 +141,5 @@ def test_verification_is_skipped_entirely_when_it_is_switched_off():
 
     class Exploding:
         iap = explode
-        id_token = explode
 
     assert authorize({}, _config(require=False), Exploding()) == "unverified"

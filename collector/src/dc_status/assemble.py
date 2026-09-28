@@ -23,7 +23,7 @@ from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from .config import EnvConfig, PeerConfig
+from .config import EnvConfig
 from .model import UNKNOWN, Probe, ProbeContext, worst
 from .probes import (
     COUNTS_BUDGET_SECONDS,
@@ -42,7 +42,6 @@ from .rest import PUBLIC_TIMEOUT_SECONDS
 from .sanitize import sanitize
 
 _PROBE_DEADLINE_SECONDS = 25.0
-_PEER_DEADLINE_SECONDS = 20.0
 
 
 @dataclass(frozen=True)
@@ -235,72 +234,3 @@ def _wrap(environments: list[dict], *, now: datetime | None, partial: bool) -> d
         "partial": partial,
         "environments": environments,
     }
-
-
-def _unreachable_peer(peer: PeerConfig, exc: Exception) -> dict:
-    return {
-        "id": peer.id,
-        "label": peer.label,
-        "self": False,
-        "reachable": False,
-        "overall": UNKNOWN,
-        "detail": sanitize(exc),
-        "dcp_version": None,
-        "schema_tables": [],
-        "counts": {},
-        "ingestions": [],
-        "data_sources": [],
-        "unmatched_provenances": [],
-        "probes": [],
-    }
-
-
-def collect_all(
-    config: EnvConfig,
-    clients: Clients,
-    cache,
-    fetch_peer: Callable[[PeerConfig], dict],
-    *,
-    now: datetime | None = None,
-    probes: tuple[ProbeSpec, ...] = PROBES,
-    peer_deadline_seconds: float = _PEER_DEADLINE_SECONDS,
-) -> dict:
-    local = collect_self(config, clients, cache, now=now, probes=probes)
-    environments = list(local["environments"])
-    partial = bool(local["partial"])
-
-    remote_by_id: dict[str, dict] = {}
-    if config.peers:
-        started = time.monotonic()
-        pool = ThreadPoolExecutor(max_workers=max(1, len(config.peers)))
-        try:
-            futures = {peer.id: pool.submit(fetch_peer, peer) for peer in config.peers}
-            for peer in config.peers:
-                remaining = peer_deadline_seconds - (time.monotonic() - started)
-                try:
-                    payload = futures[peer.id].result(timeout=max(0.1, remaining))
-                    remote = (payload.get("environments") or [{}])[0]
-                    if not isinstance(remote, dict):
-                        # A well-formed-but-degraded peer can legitimately answer
-                        # 200 with environments: []. Falling back to {} above is
-                        # fine; anything else in that slot is not, and must be
-                        # treated as a failure rather than crash the aggregation.
-                        raise TypeError("peer environment payload was not an object")
-                    remote = dict(remote)
-                    remote.setdefault("id", peer.id)
-                    remote.setdefault("label", peer.label)
-                    remote.setdefault("overall", UNKNOWN)
-                    remote["self"] = False
-                    remote["reachable"] = True
-                except Exception as exc:
-                    partial = True
-                    remote = _unreachable_peer(peer, exc)
-                remote_by_id[peer.id] = remote
-        finally:
-            # NOT a `with` block, for the same reason as collect_self: __exit__
-            # calls shutdown(wait=True), which would wait for a peer fetch the
-            # deadline just gave up on.
-            pool.shutdown(wait=False, cancel_futures=True)
-
-    environments.extend(remote_by_id[peer.id] for peer in config.peers)
-    return _wrap(environments, now=now, partial=partial)
