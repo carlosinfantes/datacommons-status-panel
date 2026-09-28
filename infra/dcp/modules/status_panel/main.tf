@@ -16,7 +16,7 @@ locals {
   name_prefix   = var.instance_name != "" ? "${var.instance_name}-" : ""
   service_name  = "${local.name_prefix}dc-status"
   sa_account_id = "${local.name_prefix}dc-sts-sa"
-  sa_email      = var.service_account_email != null ? var.service_account_email : google_service_account.status[0].email
+  sa_email      = var.create_service_account ? google_service_account.status[0].email : var.service_account_email
 
   # The IAP service agent has to be able to invoke the service. There is no
   # google_project_service_identity in the GA provider, so the well-known address
@@ -45,12 +45,13 @@ data "google_project" "this" {
   project_id = var.project_id
 }
 
-# Created here unless the caller brings its own (service_account_email). A caller
+# Created here unless the caller brings its own (create_service_account = false
+# plus service_account_email). A caller
 # that grants its deployer actAs per service account, rather than project-wide,
 # has to: Cloud Run checks actAs when the service is created, and a binding on an
 # account this module creates cannot be ordered before that within one apply.
 resource "google_service_account" "status" {
-  count        = var.service_account_email == null ? 1 : 0
+  count        = var.create_service_account ? 1 : 0
   project      = var.project_id
   account_id   = local.sa_account_id
   display_name = "Data Commons status panel"

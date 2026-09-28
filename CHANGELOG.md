@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc.8] - 2026-09-28
+
+### Fixed
+
+- Bringing your own service account failed to plan on a fresh project: the
+  module's `count` depended on `service_account_email`, which is only known
+  after apply when the account is created in the same run. A plan-time
+  `create_service_account` bool now decides; `service_account_email` is
+  required when it is `false`.
+
 ## [1.0.0-rc.7] - 2026-09-28
 
 ### Fixed
@@ -165,7 +175,8 @@ The v1 redesign: one panel per deployment, answering four questions. See the
   frame-ancestors 'none'` and `Referrer-Policy: no-referrer`; `/api/*`
   responses carry `Cache-Control: no-store`.
 
-[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.7...HEAD
+[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.8...HEAD
+[1.0.0-rc.8]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.7...v1.0.0-rc.8
 [1.0.0-rc.7]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.6...v1.0.0-rc.7
 [1.0.0-rc.6]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.5...v1.0.0-rc.6
 [1.0.0-rc.5]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.4...v1.0.0-rc.5

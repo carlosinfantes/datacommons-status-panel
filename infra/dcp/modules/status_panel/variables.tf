@@ -319,14 +319,25 @@ variable "ghcr_image_path" {
   default     = "carlosinfantes/dc-status"
 }
 
+variable "create_service_account" {
+  description = "Create the collector's service account. Set false and pass service_account_email to bring your own, e.g. when the deployer is granted actAs per service account. A plain bool on purpose: count cannot depend on an email that is only known after apply."
+  type        = bool
+  default     = true
+}
+
 variable "service_account_email" {
-  description = "Run the collector as this existing service account instead of creating one. The module still grants it the read-only roles it needs. Use it when the deployer is granted actAs per service account: create the account and that binding before this module."
+  description = "The existing service account the collector runs as when create_service_account is false. The module still grants it the read-only roles it needs."
   type        = string
   default     = null
 
   validation {
     condition     = var.service_account_email == null || can(regex("^[a-z0-9-]+@[a-z0-9-]+\\.iam\\.gserviceaccount\\.com$", var.service_account_email))
     error_message = "service_account_email must be a service account email (…@<project>.iam.gserviceaccount.com)."
+  }
+
+  validation {
+    condition     = var.create_service_account || var.service_account_email != null
+    error_message = "With create_service_account = false, service_account_email is required."
   }
 }
 

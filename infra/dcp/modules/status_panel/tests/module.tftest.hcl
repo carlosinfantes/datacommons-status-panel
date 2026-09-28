@@ -113,7 +113,8 @@ run "brings_its_own_service_account" {
   command = plan
 
   variables {
-    service_account_email = "panel-sa@example-project.iam.gserviceaccount.com"
+    create_service_account = false
+    service_account_email  = "panel-sa@example-project.iam.gserviceaccount.com"
   }
 
   assert {
@@ -164,3 +165,14 @@ run "rejects_both_connector_and_network" {
 
   expect_failures = [var.vpc_access]
 }
+
+run "requires_an_email_when_not_creating_the_account" {
+  command = plan
+
+  variables {
+    create_service_account = false
+  }
+
+  expect_failures = [var.service_account_email]
+}
+

@@ -11,7 +11,7 @@
     "region": "us-central1"
   },
   "panel": {
-    "version": "1.0.0-rc.7",
+    "version": "1.0.0-rc.8",
     "commit": "b630f5d6c9eb",
     "source": "https://github.com/carlosinfantes/datacommons-status-panel"
   },
