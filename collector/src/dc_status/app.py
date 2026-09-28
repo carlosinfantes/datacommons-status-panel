@@ -24,7 +24,8 @@ from urllib.parse import parse_qs
 from .assemble import collect_status
 from .auth import Denied, authorize
 from .cache import DocumentCache, TTLCache
-from .config import load_auth_config, load_config
+from .config import load_auth_config, load_config, load_flag
+from .replay import load_replay
 from .sanitize import sanitize
 
 _ASSETS = {
@@ -74,6 +75,7 @@ def create_app(
     auth,
     verifier=None,
     document_cache: DocumentCache | None = None,
+    replay_shift_time: bool = False,
 ):
     """`auth` is keyword-only and has no default on purpose: an app cannot be
     built without stating who may read it."""
@@ -87,8 +89,7 @@ def create_app(
         if replay:
             # Read on every request, uncached: it is a local file, and editing it
             # while the page is open is the point of the affordance.
-            with open(replay, encoding="utf-8") as handle:
-                return json.load(handle)
+            return load_replay(replay, shift_time=replay_shift_time)
         return documents.get(_collect, fresh=fresh)
 
     def application(environ, start_response):
@@ -146,25 +147,24 @@ def create_app(
 
 
 def _build_default():
+    auth = load_auth_config(os.environ)
+    replay = (os.environ.get("DCS_REPLAY_FILE") or "").strip()
+    if replay:
+        # Replay serves a saved document and calls no API, so it needs neither
+        # credentials nor any deployment configuration: requiring either would
+        # defeat the one thing the affordance exists for, iterating on the page
+        # or giving a demo without a deployment behind it. The access gate is
+        # read all the same, so a replaying panel is no more open than a live one.
+        return create_app(
+            replay=replay,
+            replay_shift_time=load_flag(os.environ, "REPLAY_SHIFT_TIME"),
+            auth=auth,
+        )
+
+    from .clients import build_clients
+
     config = load_config(os.environ)
-    replay = os.environ.get("DCS_REPLAY_FILE")
-
-    clients = None
-    if not replay:
-        # Only reached when something will actually be probed. Replay serves a
-        # saved document and calls no API, so requiring credentials to build the
-        # clients would defeat the one thing the affordance exists for: iterating
-        # on the page without a deployment behind it.
-        from .clients import build_clients
-
-        clients = build_clients(config)
-
-    return create_app(
-        config=config,
-        clients=clients,
-        replay=replay,
-        auth=load_auth_config(os.environ),
-    )
+    return create_app(config=config, clients=build_clients(config), auth=auth)
 
 
 class _Lazy:

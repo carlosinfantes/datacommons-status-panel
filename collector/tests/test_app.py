@@ -13,12 +13,14 @@
 # limitations under the License.
 
 import json
+from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
 from dc_status.app import create_app
 from dc_status.cache import DocumentCache
-from dc_status.config import AuthConfig, EnvConfig
+from dc_status.config import AuthConfig, ConfigError, EnvConfig
 
 _IAP_ISSUER = "https://cloud.google.com/iap"
 
@@ -353,6 +355,56 @@ def test_replay_needs_no_credentials(monkeypatch, tmp_path):
     app = app_module._build_default()
     _captured, body = _call(app, "/api/v1/status")
     assert json.loads(body)["overall"] == "healthy"
+
+
+def test_replay_needs_no_deployment_configuration_at_all(monkeypatch):
+    # Demos and page work run from the canonical document alone: no project,
+    # no Spanner, no service names.
+    import dc_status.app as app_module
+
+    demo = Path(__file__).parent / "fixtures" / "demo.json"
+    monkeypatch.setattr(
+        app_module.os,
+        "environ",
+        {"DCS_REPLAY_FILE": str(demo), "DCS_REQUIRE_AUTH": "false"},
+    )
+    _captured, body = _call(app_module._build_default(), "/api/v1/status")
+    assert json.loads(body) == json.loads(demo.read_text())
+
+
+def test_replay_can_shift_the_document_to_look_current(monkeypatch):
+    import dc_status.app as app_module
+
+    demo = Path(__file__).parent / "fixtures" / "demo.json"
+    monkeypatch.setattr(
+        app_module.os,
+        "environ",
+        {
+            "DCS_REPLAY_FILE": str(demo),
+            "DCS_REPLAY_SHIFT_TIME": "true",
+            "DCS_REQUIRE_AUTH": "false",
+        },
+    )
+    _captured, body = _call(app_module._build_default(), "/api/v1/status")
+    generated = datetime.fromisoformat(json.loads(body)["generated_at"].replace("Z", "+00:00"))
+    assert abs((datetime.now(UTC) - generated).total_seconds()) < 60
+
+
+def test_a_malformed_shift_setting_is_refused(monkeypatch):
+    import dc_status.app as app_module
+
+    monkeypatch.setattr(
+        app_module.os,
+        "environ",
+        {
+            "DCS_REPLAY_FILE": "x.json",
+            "DCS_REPLAY_SHIFT_TIME": "sometimes",
+            "DCS_REQUIRE_AUTH": "false",
+        },
+    )
+    with pytest.raises(ConfigError) as caught:
+        app_module._build_default()
+    assert "DCS_REPLAY_SHIFT_TIME" in str(caught.value)
 
 
 def test_a_live_deployment_still_builds_its_clients(monkeypatch):

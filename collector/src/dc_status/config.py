@@ -172,6 +172,17 @@ def load_auth_config(environ: Mapping[str, str]) -> AuthConfig:
     return config
 
 
+def load_flag(environ: Mapping[str, str], key: str, *, default: bool = False) -> bool:
+    raw = _value(environ, key).lower()
+    if not raw:
+        return default
+    if raw in _TRUE:
+        return True
+    if raw in _FALSE:
+        return False
+    raise ConfigError(f"{_PREFIX}{key} must be a boolean, got {raw!r}")
+
+
 def _value(environ: Mapping[str, str], key: str, default: str = "") -> str:
     return (environ.get(f"{_PREFIX}{key}") or default).strip()
 
