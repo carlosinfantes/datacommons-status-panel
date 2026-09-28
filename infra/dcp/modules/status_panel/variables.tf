@@ -35,9 +35,21 @@ variable "stateless_deletion_protection" {
 }
 
 variable "image" {
-  description = "Container image for the collector, pinned by digest."
+  description = <<-EOT
+    Container image for the collector, pinned by digest: <path>:<tag>@sha256:<digest>
+    or <path>@sha256:<digest>. For the public release image, create the GHCR
+    remote repository (create_ghcr_remote) and use the ghcr_remote_image output
+    as <path>, since Cloud Run cannot pull from ghcr.io directly.
+  EOT
   type        = string
   nullable    = false
+
+  # A tag is mutable: the code that runs could change under an unchanged plan,
+  # and the signature verified before deploying would no longer describe it.
+  validation {
+    condition     = strcontains(var.image, "@sha256:")
+    error_message = "image must be pinned by digest (<path>[:<tag>]@sha256:<digest>), not by tag alone."
+  }
 }
 
 variable "cpu" {
@@ -277,4 +289,32 @@ variable "signals_window_minutes" {
     condition     = var.signals_window_minutes >= 5 && var.signals_window_minutes <= 1440 && floor(var.signals_window_minutes) == var.signals_window_minutes
     error_message = "signals_window_minutes must be a whole number between 5 and 1440."
   }
+}
+
+variable "create_ghcr_remote" {
+  description = <<-EOT
+    Create an Artifact Registry remote repository with ghcr.io as its upstream.
+    Cloud Run cannot pull from ghcr.io directly; through this repository it pulls
+    the public release image. Use the ghcr_remote_image output as the image path
+    and append the tag and digest.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "ghcr_remote_repository_id" {
+  description = "Repository ID of the GHCR remote repository. Empty means \"<instance_name>-ghcr\", or \"ghcr\" when instance_name is empty."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.ghcr_remote_repository_id == "" || can(regex("^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$", var.ghcr_remote_repository_id))
+    error_message = "ghcr_remote_repository_id must start with a lowercase letter and contain only lowercase letters, digits and hyphens."
+  }
+}
+
+variable "ghcr_image_path" {
+  description = "Path of the image on ghcr.io, without registry, tag or digest. Change it only to run a fork's build."
+  type        = string
+  default     = "carlosinfantes/dc-status"
 }

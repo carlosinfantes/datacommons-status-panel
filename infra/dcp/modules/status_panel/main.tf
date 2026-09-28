@@ -36,6 +36,8 @@ locals {
     "roles/workflows.viewer",
     "roles/monitoring.viewer",
   ]
+
+  ghcr_repository_id = var.ghcr_remote_repository_id != "" ? var.ghcr_remote_repository_id : "${local.name_prefix}ghcr"
 }
 
 data "google_project" "this" {
@@ -210,6 +212,36 @@ resource "google_cloud_run_v2_service" "status" {
         initial_delay_seconds = 2
         period_seconds        = 5
         failure_threshold     = 6
+      }
+    }
+  }
+
+  # When the image is pulled through the GHCR remote repository created below,
+  # the repository has to exist before the first revision is deployed.
+  depends_on = [google_artifact_registry_repository.ghcr]
+}
+
+# Cloud Run pulls only from Artifact Registry (and Docker Hub), not from ghcr.io.
+# A remote repository with ghcr.io upstream lets it pull the public release image
+# by digest and caches it in the project. The image is public, so no upstream
+# credentials are configured, and Cloud Run's service agent can read a
+# repository in its own project without an extra grant.
+resource "google_artifact_registry_repository" "ghcr" {
+  count = var.create_ghcr_remote ? 1 : 0
+
+  project       = var.project_id
+  location      = var.region
+  repository_id = local.ghcr_repository_id
+  description   = "Remote repository for ghcr.io, used to pull the Data Commons status panel image."
+  format        = "DOCKER"
+  mode          = "REMOTE_REPOSITORY"
+
+  remote_repository_config {
+    description = "ghcr.io"
+
+    docker_repository {
+      custom_repository {
+        uri = "https://ghcr.io"
       }
     }
   }

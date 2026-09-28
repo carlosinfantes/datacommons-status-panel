@@ -26,3 +26,8 @@ output "service_account_email" {
   description = "Service account the collector runs as."
   value       = google_service_account.status.email
 }
+
+output "ghcr_remote_image" {
+  description = "Image path through the GHCR remote repository, without tag or digest. Append :<version>@sha256:<digest> and pass it as image. Null unless create_ghcr_remote is true."
+  value       = var.create_ghcr_remote ? "${var.region}-docker.pkg.dev/${var.project_id}/${local.ghcr_repository_id}/${var.ghcr_image_path}" : null
+}
