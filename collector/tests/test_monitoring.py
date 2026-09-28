@@ -20,6 +20,7 @@ from dc_status.config import Targets
 from dc_status.model import DEGRADED, HEALTHY, UNKNOWN
 from dc_status.monitoring import (
     MonitoringReader,
+    percentile,
     read_signals,
     shape_signals,
     window_end,
@@ -111,9 +112,15 @@ class FakeReader:
         self.queries.append((filter, kwargs))
         if self.fail:
             raise self.fail
-        for (fragment, aligner), series in self.routes.items():
-            if fragment in filter and aligner == kwargs["aligner"]:
-                return series
+        for key, series in self.routes.items():
+            fragment, aligner = key[0], key[1]
+            if fragment not in filter or aligner != kwargs["aligner"]:
+                continue
+            # An optional third element tells the per-minute query from the
+            # whole-window one when both use the same aligner.
+            if len(key) == 3 and (key[2] == "minute") != (kwargs["alignment_seconds"] == 60):
+                continue
+            return series
         return []
 
 
@@ -134,14 +141,40 @@ def _single(value):
     return [{"points": [_point(0, value, "doubleValue")]}]
 
 
+def _explicit(bounds, counts):
+    """A Monitoring distribution: bucket 0 underflow, then one per bound gap, then overflow."""
+    return {
+        "count": str(sum(counts)),
+        "bucketOptions": {"explicitBuckets": {"bounds": bounds}},
+        "bucketCounts": [str(c) for c in counts],
+    }
+
+
+def _dist_point(steps_back, distribution):
+    return {
+        "interval": {"endTime": _stamp(END - timedelta(minutes=steps_back))},
+        "value": {"distributionValue": distribution},
+    }
+
+
+def _at(value):
+    """Every sample in a sliver just below `value`, so any percentile reads as it."""
+    return _explicit([value - 1e-6, value], [0, 0, 10, 0])
+
+
+def _latency_window(p95):
+    # p50 180, p95 as given, p99 1400 (or above p95): 50 / 45 / 4 / 1 of 100.
+    top = max(1400.0, p95 * 1.5)
+    return [{"points": [_dist_point(0, _explicit([0.0, 180.0, p95, top], [0, 50, 45, 4, 1]))]}]
+
+
 def _routes(per_minute_2xx=2400, per_minute_5xx=1, p95=610.0, spanner=0.40, instances=3):
     return {
         ("request_count", "ALIGN_DELTA"): _traffic(per_minute_2xx, per_minute_5xx),
-        ("request_latencies", "ALIGN_PERCENTILE_50"): _single(180.0),
-        ("request_latencies", "ALIGN_PERCENTILE_95"): _single(p95),
-        ("request_latencies", "ALIGN_PERCENTILE_99"): _single(1400.0),
-        ("cpu/utilizations", "ALIGN_PERCENTILE_95"): _single(0.38),
-        ("memory/utilizations", "ALIGN_PERCENTILE_95"): _single(0.61),
+        ("request_latencies", "ALIGN_DELTA", "window"): _latency_window(p95),
+        ("request_latencies", "ALIGN_DELTA", "minute"): [{"points": [_dist_point(0, _at(p95))]}],
+        ("cpu/utilizations", "ALIGN_DELTA"): [{"points": [_dist_point(0, _at(0.38))]}],
+        ("memory/utilizations", "ALIGN_DELTA"): [{"points": [_dist_point(0, _at(0.61))]}],
         ("instance_count", "ALIGN_MAX"): [
             {"points": [_point(0, instances), _point(1, instances + 1)]}
         ],
@@ -230,8 +263,8 @@ def test_a_step_with_no_data_is_zero_traffic_and_no_latency():
             "points": [_point(0, 600), _point(2, 600)],
         }
     ]
-    routes[("request_latencies", "ALIGN_PERCENTILE_95")] = [
-        {"points": [_point(0, 500.0, "doubleValue")]}
+    routes[("request_latencies", "ALIGN_DELTA", "minute")] = [
+        {"points": [_dist_point(0, _at(500.0))]}
     ]
     signals = shape_signals(_read(routes, window=3), Targets(min_requests_per_hour=0), None)
     assert signals["traffic"]["series"] == [10.0, 0.0, 10.0]
@@ -334,3 +367,55 @@ def test_saturation_within_every_target_is_healthy():
 def test_saturation_with_no_data_at_all_is_unknown():
     signals = shape_signals(_read({}), Targets(), None)
     assert probe_saturation(signals, Targets(), _Where()).status == UNKNOWN
+
+
+# --- percentiles from merged distributions ------------------------------------
+
+
+def test_a_percentile_interpolates_within_its_bucket():
+    # 100 samples, all in [100, 200): the median sits halfway.
+    distribution = _explicit([100.0, 200.0], [0, 100, 0])
+    assert percentile(distribution, 0.5) == 150.0
+
+
+def test_exponential_buckets_are_read_as_monitoring_defines_them():
+    # scale 1, growth 2: bounds 1, 2, 4, 8. All samples in bucket 3 = [4, 8).
+    distribution = {
+        "bucketOptions": {
+            "exponentialBuckets": {"numFiniteBuckets": 3, "growthFactor": 2, "scale": 1}
+        },
+        "bucketCounts": ["0", "0", "0", "10", "0"],
+    }
+    assert percentile(distribution, 0.5) == 6.0
+
+
+def test_an_empty_distribution_has_no_percentile():
+    assert percentile({"bucketCounts": ["0", "0"]}, 0.95) is None
+    assert percentile(None, 0.95) is None
+
+
+def test_window_latency_is_a_percentile_of_the_traffic_not_the_worst_revision():
+    # Seen live: 108 requests, most fast; one revision served a few slow ones.
+    # Merged, the median is fast; the old per-revision maximum said 4.7 s.
+    routes = _routes()
+    routes[("request_latencies", "ALIGN_DELTA", "window")] = [
+        {"points": [_dist_point(0, _explicit([0.0, 50.0, 5000.0], [0, 100, 8, 0]))]}
+    ]
+    signals = shape_signals(_read(routes), Targets(), 6)
+    assert signals["latency"]["p50_ms"] < 50
+    assert signals["latency"]["p99_ms"] > 1000
+
+
+def test_revisions_are_merged_before_the_percentile_is_taken():
+    reader = FakeReader(_routes())
+    read_signals(
+        reader,
+        service_name="example-dc-service",
+        spanner_instance_id="example-instance",
+        window_minutes=60,
+        now=NOW,
+    )
+    latency = [q for f, q in reader.queries if "request_latencies" in f]
+    assert latency and all(
+        q["aligner"] == "ALIGN_DELTA" and q["reducer"] == "REDUCE_SUM" for q in latency
+    )

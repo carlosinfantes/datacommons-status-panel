@@ -87,7 +87,7 @@ probe reports `elapsed_ms` and `budget_ms`.
 | System | `version_consistency` | derived | The image is newer than the schema supports. |
 | System | `frontend` | GET frontend `/` | It answers anything other than 200. |
 | Experience | `errors` | `run.googleapis.com/request_count` by `response_code_class` | Availability, 1 − 5xx/total, is below `availability_pct`. Not judged below `min_requests_per_hour`. |
-| Experience | `latency` | `run.googleapis.com/request_latencies`, p50/p95/p99 | p95 is above `latency_p95_ms`. Not judged below `min_requests_per_hour`. |
+| Experience | `latency` | `run.googleapis.com/request_latencies`, merged across revisions, p50/p95/p99 from the merged buckets | p95 is above `latency_p95_ms`. Not judged below `min_requests_per_hour`. |
 | Experience | `saturation` | Cloud Run `container/cpu/utilizations`, `container/memory/utilizations`, `container/instance_count` (active); Spanner `instance/cpu/utilization_by_priority` (priority `high`) | Any value is at or above its target, or instances equal the configured maximum. |
 | Quality | `counts` | `COUNT(*)` per table | A count fails. This is unchanged from v0. |
 | Quality | `data_sources` | GCS listing crossed with `TimeSeries` by provenance | A configured source has no files or serves no rows. |

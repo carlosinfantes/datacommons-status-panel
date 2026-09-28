@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc.7] - 2026-09-28
+
+### Fixed
+
+- Latency percentiles, and Cloud Run CPU and memory p95, are now percentiles of
+  the traffic: the distributions are merged across revisions (`ALIGN_DELTA` +
+  `REDUCE_SUM`) and the percentiles computed from the merged buckets. Before, a
+  percentile was taken per revision and the maximum reported, so one revision
+  with a few slow requests set it (seen live: a p50 of 4.7 s against a 133 ms
+  mean).
+
 ## [1.0.0-rc.6] - 2026-09-28
 
 ### Added
@@ -154,7 +165,8 @@ The v1 redesign: one panel per deployment, answering four questions. See the
   frame-ancestors 'none'` and `Referrer-Policy: no-referrer`; `/api/*`
   responses carry `Cache-Control: no-store`.
 
-[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.6...HEAD
+[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.7...HEAD
+[1.0.0-rc.7]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.6...v1.0.0-rc.7
 [1.0.0-rc.6]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.5...v1.0.0-rc.6
 [1.0.0-rc.5]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.4...v1.0.0-rc.5
 [1.0.0-rc.4]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.3...v1.0.0-rc.4

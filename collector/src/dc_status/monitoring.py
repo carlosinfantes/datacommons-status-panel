@@ -23,13 +23,14 @@ Aggregation choices, and why:
 - Traffic and errors: request_count aligned with ALIGN_DELTA per minute and
   summed across revisions, grouped by response_code_class. Exact counts, so
   availability is computed, not estimated.
-- Latency: ALIGN_PERCENTILE_xx per revision, then REDUCE_MAX across revisions.
-  Percentiles cannot be merged exactly after the fact; taking the worst
-  revision is conservative and exact whenever one revision serves, which is
-  the steady state. The window figures use one alignment period spanning the
-  whole window; the p95 series uses one per minute.
-- Cloud Run CPU and memory: the utilization distributions, as p95 across the
-  window, worst revision. p95 rather than mean because one pinned instance is
+- Latency: the request_latencies distributions merged across revisions
+  (ALIGN_DELTA + REDUCE_SUM), and p50/p95/p99 computed here from the merged
+  buckets. Not ALIGN_PERCENTILE per revision then REDUCE_MAX: the maximum of
+  per-revision percentiles is not a percentile of the traffic, and one revision
+  with a few slow requests sets it. The window figures use one alignment period
+  spanning the whole window; the p95 series uses one per minute.
+- Cloud Run CPU and memory: the utilization distributions merged the same way,
+  as p95 across the window. p95 rather than mean because one pinned instance is
   saturation even when the fleet average looks calm.
 - Instances: instance_count with state "active", summed across revisions, the
   newest minute. Compared with the service's maxInstanceCount.
@@ -135,7 +136,7 @@ def _number(point: dict) -> float | None:
     return None
 
 
-def _grid(points: list[dict], end: datetime, steps: int) -> list[float | None]:
+def _grid(points: list[dict], end: datetime, steps: int, value_of=None) -> list[float | None]:
     """One slot per step, oldest first; a step with no point stays None.
 
     Points are placed by their end time, rounded to the nearest step, so an
@@ -144,7 +145,7 @@ def _grid(points: list[dict], end: datetime, steps: int) -> list[float | None]:
     slots: list[float | None] = [None] * steps
     for point in points:
         ended = parse_timestamp((point.get("interval") or {}).get("endTime"))
-        value = _number(point)
+        value = (value_of or _number)(point)
         if ended is None or value is None:
             continue
         back = round((end - ended).total_seconds() / STEP_SECONDS)
@@ -152,6 +153,74 @@ def _grid(points: list[dict], end: datetime, steps: int) -> list[float | None]:
         if 0 <= index < steps:
             slots[index] = (slots[index] or 0.0) + value
     return slots
+
+
+def _bounds(options: dict, finite: int) -> list[float]:
+    """Upper bounds of the finite buckets, per Monitoring's BucketOptions."""
+    if "exponentialBuckets" in options:
+        spec = options["exponentialBuckets"]
+        scale, growth = float(spec["scale"]), float(spec["growthFactor"])
+        return [scale * growth**i for i in range(finite + 1)]
+    if "linearBuckets" in options:
+        spec = options["linearBuckets"]
+        offset, width = float(spec.get("offset", 0)), float(spec["width"])
+        return [offset + width * i for i in range(finite + 1)]
+    if "explicitBuckets" in options:
+        return [float(b) for b in options["explicitBuckets"]["bounds"]]
+    return []
+
+
+def _finite(options: dict) -> int:
+    for kind in ("exponentialBuckets", "linearBuckets"):
+        if kind in options:
+            return int(options[kind]["numFiniteBuckets"])
+    if "explicitBuckets" in options:
+        return len(options["explicitBuckets"]["bounds"]) - 1
+    return 0
+
+
+def percentile(distribution: dict | None, fraction: float) -> float | None:
+    """A percentile of a Monitoring distribution, interpolated within its bucket.
+
+    Bucket 0 is the underflow (below the first bound, floored at zero: latencies
+    and utilizations are never negative), buckets 1..N are finite, the last is
+    the overflow, which yields its lower bound.
+    """
+    if not distribution:
+        return None
+    counts = [int(c) for c in distribution.get("bucketCounts") or []]
+    total = sum(counts)
+    if total == 0:
+        return None
+    options = distribution.get("bucketOptions") or {}
+    bounds = _bounds(options, _finite(options))
+    if not bounds:
+        mean = distribution.get("mean")
+        return float(mean) if mean is not None else None
+    rank = fraction * total
+    seen = 0
+    for index, count in enumerate(counts):
+        if count and seen + count >= rank:
+            lower = 0.0 if index == 0 else bounds[min(index - 1, len(bounds) - 1)]
+            if index >= len(bounds):
+                return lower
+            upper = bounds[index]
+            return lower + (upper - lower) * ((rank - seen) / count)
+        seen += count
+    return bounds[-1]
+
+
+def _distribution(point: dict) -> dict | None:
+    return (point.get("value") or {}).get("distributionValue")
+
+
+def _newest_distribution(series: list[dict]) -> dict | None:
+    for item in series:
+        for point in item.get("points") or []:
+            found = _distribution(point)
+            if found:
+                return found
+    return None
 
 
 def _newest(series: list[dict]) -> float | None:
@@ -211,19 +280,22 @@ def read_signals(
             "REDUCE_SUM",
             ("metric.labels.response_code_class",),
         ),
-        "p95_series": per_minute(latencies, "ALIGN_PERCENTILE_95", "REDUCE_MAX"),
-        "p50": whole_window(latencies, "ALIGN_PERCENTILE_50", "REDUCE_MAX"),
-        "p95": whole_window(latencies, "ALIGN_PERCENTILE_95", "REDUCE_MAX"),
-        "p99": whole_window(latencies, "ALIGN_PERCENTILE_99", "REDUCE_MAX"),
+        # Distributions are merged across revisions (ALIGN_DELTA + REDUCE_SUM)
+        # and the percentiles computed here from the merged buckets. Taking a
+        # percentile per revision and then the maximum is not a percentile of
+        # the traffic: one revision with a handful of slow requests would set it
+        # (seen live: a "p50" of 4.7 s against a 133 ms mean).
+        "latency_series": per_minute(latencies, "ALIGN_DELTA", "REDUCE_SUM"),
+        "latency": whole_window(latencies, "ALIGN_DELTA", "REDUCE_SUM"),
         "run_cpu": whole_window(
             _run_filter("container/cpu/utilizations", service_name),
-            "ALIGN_PERCENTILE_95",
-            "REDUCE_MAX",
+            "ALIGN_DELTA",
+            "REDUCE_SUM",
         ),
         "run_memory": whole_window(
             _run_filter("container/memory/utilizations", service_name),
-            "ALIGN_PERCENTILE_95",
-            "REDUCE_MAX",
+            "ALIGN_DELTA",
+            "REDUCE_SUM",
         ),
         "instances": per_minute(
             _run_filter("container/instance_count", service_name, 'metric.labels.state="active"'),
@@ -255,21 +327,28 @@ def read_signals(
                 server_errors[index] += value
 
     p95_series: list[float | None] = [None] * window_minutes
-    for item in results["p95_series"]:
-        for index, value in enumerate(_grid(item.get("points") or [], end, window_minutes)):
+    for item in results["latency_series"]:
+        grid = _grid(
+            item.get("points") or [],
+            end,
+            window_minutes,
+            value_of=lambda point: percentile(_distribution(point), 0.95),
+        )
+        for index, value in enumerate(grid):
             if value is not None:
                 p95_series[index] = max(value, p95_series[index] or 0.0)
+    latency = _newest_distribution(results["latency"])
 
     return {
         "window_minutes": window_minutes,
         "totals": totals,
         "server_errors": server_errors,
         "p95_series": p95_series,
-        "p50": _newest(results["p50"]),
-        "p95": _newest(results["p95"]),
-        "p99": _newest(results["p99"]),
-        "run_cpu": _newest(results["run_cpu"]),
-        "run_memory": _newest(results["run_memory"]),
+        "p50": percentile(latency, 0.50),
+        "p95": percentile(latency, 0.95),
+        "p99": percentile(latency, 0.99),
+        "run_cpu": percentile(_newest_distribution(results["run_cpu"]), 0.95),
+        "run_memory": percentile(_newest_distribution(results["run_memory"]), 0.95),
         "instances": _newest(results["instances"]),
         "spanner_cpu": _newest(results["spanner_cpu"]),
     }

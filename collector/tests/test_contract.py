@@ -158,8 +158,18 @@ class FakeReader:
             ]
         if "instance_count" in filter:
             return [{"points": [point(0, "3", "int64Value")]}]
+
+        def around(value):
+            # A distribution with every sample just below `value`.
+            return {
+                "bucketOptions": {"explicitBuckets": {"bounds": [value * 0.999, value]}},
+                "bucketCounts": ["0", "10", "0"],
+            }
+
         if "request_latencies" in filter:
-            return [{"points": [point(0, 600.0, "doubleValue")]}]
+            return [{"points": [point(0, around(600.0), "distributionValue")]}]
+        if "utilizations" in filter:
+            return [{"points": [point(0, around(0.4), "distributionValue")]}]
         return [{"points": [point(0, 0.4, "doubleValue")]}]
 
 
