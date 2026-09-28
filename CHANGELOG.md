@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc.1] - 2026-09-28
+
 The v1 redesign: one panel per deployment, answering four questions. See the
 [design document](docs/design/2026-09-28-status-panel-v1-design.md).
 
@@ -89,4 +91,5 @@ The v1 redesign: one panel per deployment, answering four questions. See the
   frame-ancestors 'none'` and `Referrer-Policy: no-referrer`; `/api/*`
   responses carry `Cache-Control: no-store`.
 
-[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/commits/main
+[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.1...HEAD
+[1.0.0-rc.1]: https://github.com/carlosinfantes/datacommons-status-panel/releases/tag/v1.0.0-rc.1

@@ -68,6 +68,9 @@ jobs:
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           generate_release_notes: true
+          # A hyphenated tag (v1.0.0-rc.1) is a release candidate, never the latest release.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
           body: |
             Image: `${{ env.IMAGE }}:${{ steps.meta.outputs.version }}@${{ steps.build.outputs.digest }}`
 
