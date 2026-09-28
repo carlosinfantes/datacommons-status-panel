@@ -35,11 +35,13 @@ const STALE_AFTER_MS = 10 * 60 * 1000;
 
 // Status is never encoded by colour alone: every state carries a drawn glyph and
 // a word. `unknown` ranks with `degraded`: not knowing is a reason to look.
+// `severity` orders findings: a problem the collector could see outranks one
+// it could not look at, so the verdict names a known cause when there is one.
 const STATUS = {
-  healthy: { label: "healthy", rank: 0 },
-  degraded: { label: "degraded", rank: 1 },
-  unknown: { label: "unknown", rank: 1 },
-  down: { label: "down", rank: 2 },
+  healthy: { label: "healthy", rank: 0, severity: 0 },
+  unknown: { label: "unknown", rank: 1, severity: 1 },
+  degraded: { label: "degraded", rank: 1, severity: 2 },
+  down: { label: "down", rank: 2, severity: 3 },
 };
 
 const DIMENSIONS = {
@@ -114,6 +116,10 @@ function statusOf(value) {
 
 function rankOf(value) {
   return STATUS[statusOf(value)].rank;
+}
+
+function severityOf(value) {
+  return STATUS[statusOf(value)].severity;
 }
 
 // The glyphs are authored here rather than borrowed from the text font, so all
@@ -294,7 +300,7 @@ function findingsOf(snapshot) {
   return orderedProbes(snapshot)
     .map((probe, index) => ({ probe, index }))
     .filter(({ probe }) => rankOf(probe.status) > 0)
-    .sort((a, b) => rankOf(b.probe.status) - rankOf(a.probe.status) || a.index - b.index)
+    .sort((a, b) => severityOf(b.probe.status) - severityOf(a.probe.status) || a.index - b.index)
     .map(({ probe }) => probe);
 }
 
@@ -695,7 +701,7 @@ function renderExperience(snapshot, dimension) {
       element(
         "p",
         "empty-state__body",
-        "They come from Cloud Monitoring, which did not answer. The collector's service account needs roles/monitoring.viewer on the project. The checks below say what happened."
+        "They come from Cloud Monitoring, which did not answer. The checks below say what the collector saw. If this persists, check that its service account holds roles/monitoring.viewer on the project."
       )
     );
     node.append(empty);
@@ -1685,7 +1691,7 @@ function renderAge() {
   const stamp = parseStamp(latest && latest.generated_at);
   if (!stamp) {
     clock.textContent = "—";
-    relative.textContent = latest ? "time unknown" : "reading";
+    relative.textContent = latest ? "time unknown" : doc.getElementById("readout").dataset.failed ? "no reading" : "reading";
     host.dataset.stale = "false";
     return;
   }
@@ -1718,21 +1724,24 @@ function render(snapshot) {
 
 // A failure keeps the last good snapshot on screen and says so, because the
 // numbers from a minute ago are more use than an empty page.
-function failed(message) {
+// A failure keeps the last good snapshot on screen and says so: the numbers
+// from a minute ago are more use than an empty page.
+function failed(headline, detail) {
   const readout = doc.getElementById("readout");
   readout.dataset.state = "settled";
+  readout.dataset.failed = "true";
+  const parts = [];
+  if (detail) parts.push(terminate(detail));
   if (latest) {
     const stamp = parseStamp(latest.generated_at);
-    setVerdict(
-      message,
-      null,
-      stamp ? `Showing the last snapshot that loaded, from ${clockFormat.format(stamp)} UTC.` : "Showing the last snapshot that loaded."
+    parts.push(
+      stamp
+        ? `Showing the last snapshot that loaded, from ${clockFormat.format(stamp)} UTC.`
+        : "Showing the last snapshot that loaded."
     );
-    readout.dataset.failed = "true";
-    return;
   }
-  setVerdict(message, null, "");
-  readout.dataset.failed = "true";
+  setVerdict(headline, null, parts.join(" "));
+  renderAge();
 }
 
 function refreshIapSession() {
@@ -1756,7 +1765,9 @@ function refreshIapSession() {
 }
 
 async function errorMessage(response) {
-  if (response.status === 403) return "You don't have access to this panel.";
+  if (response.status === 403) {
+    return { headline: "You don't have access to this panel.", detail: "Access is granted through IAP by whoever runs this deployment" };
+  }
   let detail = "";
   try {
     const body = await response.json();
@@ -1764,12 +1775,11 @@ async function errorMessage(response) {
   } catch (error) {
     detail = "";
   }
+  detail = String(detail);
   if (response.status >= 500) {
-    return detail
-      ? `The status service failed: ${terminate(String(detail))}`
-      : `The status service failed (HTTP ${response.status}).`;
+    return { headline: "The status service failed.", detail: detail || `It answered HTTP ${response.status}` };
   }
-  return `The status service answered HTTP ${response.status}${detail ? `: ${terminate(String(detail))}` : "."}`;
+  return { headline: `The status service answered HTTP ${response.status}.`, detail };
 }
 
 function setBusy(busy) {
@@ -1792,7 +1802,7 @@ async function load({ fresh = false, retry = true } = {}) {
     });
   } catch (error) {
     setBusy(false);
-    failed("The status service is not responding.");
+    failed("The status service is not responding.", "The page will ask again in a minute");
     return;
   }
   lastFetchAt = Date.now();
@@ -1809,9 +1819,9 @@ async function load({ fresh = false, retry = true } = {}) {
   }
 
   if (!response.ok) {
-    const message = await errorMessage(response);
+    const { headline, detail } = await errorMessage(response);
     setBusy(false);
-    failed(message);
+    failed(headline, detail);
     return;
   }
 
