@@ -21,50 +21,54 @@
     <title>Data Commons — platform status</title>
     <link rel="icon" href="/static/favicon.svg" />
     <link rel="preload" href="/static/fonts/plex-sans-var.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/static/fonts/plex-mono-400.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/static/styles.css" />
+    <!-- Deferred, so it runs once the document is parsed. -->
+    <script src="/static/app.js" defer></script>
   </head>
   <body>
     <div class="readout" id="readout">
-      <!-- The utility bar carries identity, the snapshot's age, and the one control.
-           The verdict below is the page's heading, so nothing labels it from above. -->
+      <!-- Identity, the snapshot's age and the controls. The verdict below is the
+           page's heading, so nothing labels it from above. -->
       <header class="bar">
-        <p class="bar__site">Data Commons platform status</p>
+        <p class="bar__identity">
+          <span class="bar__site">Data Commons</span>
+          <span class="bar__deployment" id="deployment">—</span>
+          <span class="bar__version" id="version"></span>
+        </p>
         <p class="bar__age" id="age">
           <span class="bar__clock" id="clock">—</span>
           <span class="bar__relative" id="relative">reading</span>
+          <span class="bar__auto">auto-refresh <span class="bar__figure">60 s</span></span>
         </p>
-        <button id="refresh" type="button" class="button">
-          Refresh
-        </button>
+        <div class="bar__controls">
+          <button id="refresh" type="button" class="button">Refresh</button>
+        </div>
       </header>
 
-      <main class="body" id="body">
-        <!-- A refresh rewrites the verdict, which is the one change on the page
-             worth announcing. The ticking age deliberately stays silent. -->
-        <header class="verdict" aria-live="polite">
+      <main class="body" id="body" aria-busy="true">
+        <!-- Only a change of verdict is worth announcing. The script rewrites this
+             region only when its words change, so a refresh that finds the same
+             state stays silent. -->
+        <header class="verdict" aria-live="polite" aria-atomic="true">
           <h1 class="verdict__headline" id="headline">Reading the platform…</h1>
           <p class="verdict__cause" id="cause"></p>
         </header>
 
-        <!-- No heading: the column names and the row-group rules already say what
-             this is, and a label above them would only repeat it. -->
-        <section class="block" id="matrix-block" aria-label="Measurements" hidden>
-          <div class="scroller">
-            <table class="matrix" id="matrix"></table>
-          </div>
-        </section>
+        <nav class="tiles" id="tiles" aria-label="Dimensions" hidden></nav>
 
-        <section class="block" id="findings-block" hidden>
+        <section class="block" id="findings-block" aria-labelledby="findings-title" hidden>
           <div class="block__head">
-            <h2 class="block__title">Findings</h2>
-            <button id="toggle-details" type="button" class="button button--quiet" aria-expanded="false">
+            <h2 class="block__title" id="findings-title">Findings</h2>
+            <span class="block__meta" id="findings-count"></span>
+            <button id="toggle-details" type="button" class="button button--small" aria-expanded="false" aria-controls="findings">
               Show every check
             </button>
           </div>
           <div id="findings"></div>
         </section>
 
-        <div id="details"></div>
+        <div id="dimensions"></div>
       </main>
 
       <footer class="footnote">
@@ -72,6 +76,6 @@
         Monitoring, separately.
       </footer>
     </div>
-    <script src="/static/app.js"></script>
+    <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
   </body>
 </html>
