@@ -72,6 +72,68 @@ def test_dc_service_is_healthy_and_reports_the_live_version():
     assert probe.data["latest_ready_revision"] == "dc-00042-abc"
 
 
+def test_dc_service_reads_the_version_from_the_template_when_the_revision_has_only_a_digest():
+    # Cloud Run records a revision's image by digest alone; the tag that carries
+    # the platform version survives only in the service template. Seen live.
+    session = FakeSession(
+        {
+            "/services/dc$": FakeResponse(
+                payload={
+                    "terminalCondition": {"state": "CONDITION_SUCCEEDED"},
+                    "latestReadyRevision": REVISION,
+                    "template": {
+                        "containers": [
+                            {
+                                "image": f"gcr.io/x/datacommons-services:1.1.4@{DIGEST}",
+                                "ports": [{"containerPort": 8080}],
+                            }
+                        ]
+                    },
+                }
+            ),
+            "/revisions/dc-00042-abc$": FakeResponse(
+                payload={
+                    "containers": [
+                        {"image": f"gcr.io/x/datacommons-services@{DIGEST}", "ports": [{}]}
+                    ]
+                }
+            ),
+        }
+    )
+    probe = probe_dc_service(_context(session))
+    assert probe.data["dcp_version"] == "1.1.4"
+
+
+def test_dc_service_ignores_a_template_tag_for_a_different_digest():
+    # A template being rolled out names a newer image than the one serving; its
+    # tag says nothing about the running revision.
+    other = "sha256:" + "b" * 64
+    session = FakeSession(
+        {
+            "/services/dc$": FakeResponse(
+                payload={
+                    "terminalCondition": {"state": "CONDITION_SUCCEEDED"},
+                    "latestReadyRevision": REVISION,
+                    "template": {
+                        "containers": [
+                            {"image": f"gcr.io/x/datacommons-services:1.2.0@{other}", "ports": [{}]}
+                        ]
+                    },
+                }
+            ),
+            "/revisions/dc-00042-abc$": FakeResponse(
+                payload={
+                    "containers": [
+                        {"image": f"gcr.io/x/datacommons-services@{DIGEST}", "ports": [{}]}
+                    ]
+                }
+            ),
+        }
+    )
+    probe = probe_dc_service(_context(session))
+    assert probe.data["dcp_version"] is None
+
+
 def test_dc_service_reports_the_configured_maximum_instances():
     # The saturation probe compares live instances with this ceiling, so it is
     # read from the same service spec rather than configured twice.

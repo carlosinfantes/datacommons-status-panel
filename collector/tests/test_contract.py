@@ -117,7 +117,10 @@ class FakeSpanner:
                 }
             ]
         if "GROUP BY provenance" in sql:
-            return [{"provenance": "HEALTH", "Rows": 5}, {"provenance": "LEGACY_IMPORT", "Rows": 3}]
+            return [
+                {"provenance": "HEALTH", "RowCount": 5},
+                {"provenance": "LEGACY_IMPORT", "RowCount": 3},
+            ]
         if "FROM ImportStatus" in sql:
             return [{"ImportName": "health", "State": "SUCCESS"}]
         raise AssertionError(f"unexpected SQL in the contract test: {sql}")

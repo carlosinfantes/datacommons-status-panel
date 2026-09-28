@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -52,6 +53,7 @@ def probe_dc_service(ctx: ProbeContext) -> Probe:
     state = condition.get("state", "")
     revision = service.get("latestReadyRevision", "") or ""
     image = _live_image(ctx, service, revision)
+    version = parse_image_version(image or "") or _template_version(service, image)
     status = HEALTHY if state == "CONDITION_SUCCEEDED" else DOWN
     detail = (
         ""
@@ -66,13 +68,41 @@ def probe_dc_service(ctx: ProbeContext) -> Probe:
             "state": state,
             "latest_ready_revision": revision.rsplit("/", 1)[-1] if revision else None,
             "image": image,
-            "dcp_version": parse_image_version(image or ""),
+            "dcp_version": version,
             # The ceiling the saturation probe compares live instances against.
             # Read here, from the spec already fetched, rather than configured a
             # second time and left to drift from what Cloud Run enforces.
             "max_instances": _max_instances(service),
         },
     )
+
+
+def _ingress_image(containers: list[dict]) -> str | None:
+    # In a multi-container Cloud Run service exactly one container declares ports:
+    # that is the ingress container. With a single container, take it.
+    for container in containers:
+        if container.get("ports"):
+            return container.get("image")
+    return containers[0].get("image") if containers else None
+
+
+def _digest(image: str | None) -> str | None:
+    return image.rsplit("@", 1)[1] if image and "@" in image else None
+
+
+def _template_version(service: dict, live_image: str | None) -> str | None:
+    """The version from the service template's tag, when it names the same image.
+
+    Cloud Run records a revision's image by digest alone, so the tag carrying the
+    platform version survives only in the template. The template is trusted only
+    when its digest is the live one: during a rollout it names a newer image, and
+    its tag would then describe something that is not serving.
+    """
+    template = _ingress_image((service.get("template") or {}).get("containers") or [])
+    live = _digest(live_image)
+    if not template or not live or _digest(template) != live:
+        return None
+    return parse_image_version(template)
 
 
 def _max_instances(service: dict) -> int | None:
@@ -94,14 +124,7 @@ def _live_image(ctx: ProbeContext, service: dict, revision: str) -> str | None:
             containers = []
     if not containers:
         containers = (service.get("template") or {}).get("containers") or []
-    if not containers:
-        return None
-    # In a multi-container Cloud Run service exactly one container declares ports:
-    # that is the ingress container. With a single container, take it.
-    for container in containers:
-        if container.get("ports"):
-            return container.get("image")
-    return containers[0].get("image")
+    return _ingress_image(containers)
 
 
 def probe_spanner(ctx: ProbeContext) -> Probe:
@@ -722,7 +745,9 @@ def probe_pending_uploads(data_sources: Probe, ingestions: Probe) -> Probe:
 
 _STORAGE = "https://storage.googleapis.com/storage/v1"
 
-_PROVENANCE_SQL = "SELECT provenance, COUNT(*) AS Rows FROM TimeSeries GROUP BY provenance"
+# `RowCount`, not `Rows`: ROWS is a GoogleSQL reserved keyword and Spanner rejects it
+# as an alias (tests/test_sql.py guards every statement here).
+_PROVENANCE_SQL = "SELECT provenance, COUNT(*) AS RowCount FROM TimeSeries GROUP BY provenance"
 
 
 def _list_objects(ctx, prefix: str, max_pages: int) -> tuple[list[dict], bool]:
@@ -744,6 +769,17 @@ def _list_objects(ctx, prefix: str, max_pages: int) -> tuple[list[dict], bool]:
     return items, True  # page cap reached: say so rather than silently truncating
 
 
+def _source_key(name: str) -> str:
+    """Normalise a folder name or a provenance so the two can be compared.
+
+    Deployments name them independently: a folder `iom-dtm` holds the input for
+    provenance `UNDATA/P/IOM_DTM`. Compare the last path segment, case-folded,
+    with every run of non-alphanumerics read as one separator.
+    """
+    last = name.rstrip("/").rsplit("/", 1)[-1]
+    return re.sub(r"[^A-Z0-9]+", "_", last.upper()).strip("_")
+
+
 def probe_data_sources(ctx, *, max_pages: int = 5) -> Probe:
     provenance_detail = ""
     try:
@@ -759,9 +795,7 @@ def probe_data_sources(ctx, *, max_pages: int = 5) -> Probe:
         rows = []
         provenance_detail = f"rows served per source unavailable: {exc}"
     by_provenance = {
-        str(row.get("provenance") or "").upper(): row.get("Rows")
-        for row in rows
-        if row.get("provenance")
+        str(row.get("provenance")): row.get("RowCount") for row in rows if row.get("provenance")
     }
 
     if not ctx.data_source_prefixes:
@@ -784,10 +818,14 @@ def probe_data_sources(ctx, *, max_pages: int = 5) -> Probe:
     for prefix in ctx.data_source_prefixes:
         full_prefix = f"{ctx.input_prefix}{prefix}/"
         items, hit_cap = _list_objects(ctx, full_prefix, max_pages)
+        # A zero-byte object named like a folder is the console's placeholder for
+        # the folder itself, not an input file.
+        items = [item for item in items if not str(item.get("name", "")).endswith("/")]
         truncated = truncated or hit_cap
-        key = prefix.upper()
-        if key in by_provenance:
-            matched.add(key)
+        key = _source_key(prefix)
+        hits = [p for p in by_provenance if _source_key(p) == key]
+        matched.update(hits)
+        counts = [by_provenance[p] for p in hits if isinstance(by_provenance[p], int)]
         updates = [item.get("updated") for item in items if item.get("updated")]
         sources.append(
             {
@@ -795,7 +833,7 @@ def probe_data_sources(ctx, *, max_pages: int = 5) -> Probe:
                 "files": len(items),
                 "bytes": sum(int(item.get("size") or 0) for item in items),
                 "last_updated": max(updates) if updates else None,
-                "rows": by_provenance.get(key),
+                "rows": sum(counts) if counts else None,
             }
         )
         if not items:

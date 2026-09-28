@@ -74,7 +74,10 @@ def test_reports_files_bytes_last_update_and_rows_per_prefix():
             ),
         }
     )
-    rows = [{"provenance": "AGENCY-A", "Rows": 4711}, {"provenance": "AGENCY-B", "Rows": 12}]
+    rows = [
+        {"provenance": "AGENCY-A", "RowCount": 4711},
+        {"provenance": "AGENCY-B", "RowCount": 12},
+    ]
     probe = probe_data_sources(_ctx(session, rows))
     assert probe.status == HEALTHY
     first = probe.data["sources"][0]
@@ -102,7 +105,7 @@ def test_a_prefix_with_no_files_degrades():
             ),
         }
     )
-    probe = probe_data_sources(_ctx(session, [{"provenance": "AGENCY-B", "Rows": 12}]))
+    probe = probe_data_sources(_ctx(session, [{"provenance": "AGENCY-B", "RowCount": 12}]))
     assert probe.status == DEGRADED
     assert "agency-a" in probe.detail
 
@@ -139,7 +142,10 @@ def test_provenances_without_a_matching_prefix_are_surfaced_not_dropped():
             )
         }
     )
-    rows = [{"provenance": "AGENCY-A", "Rows": 1}, {"provenance": "SOMEONE-ELSE", "Rows": 99}]
+    rows = [
+        {"provenance": "AGENCY-A", "RowCount": 1},
+        {"provenance": "SOMEONE-ELSE", "RowCount": 99},
+    ]
     probe = probe_data_sources(_ctx(session, rows, prefixes=("agency-a",)))
     assert probe.data["unmatched_provenances"] == [{"provenance": "SOMEONE-ELSE", "rows": 99}]
 
@@ -200,3 +206,44 @@ def test_follows_pagination_and_flags_truncation_at_the_page_cap():
     session = FakeSession(pages)
     probe = probe_data_sources(_ctx(session, [], prefixes=("agency-a",)), max_pages=2)
     assert probe.data["truncated"] is True
+
+
+def _one_file(prefix):
+    return _listing(
+        [
+            # GCS console "folders" are zero-byte objects named like the prefix;
+            # they are not input files.
+            {"name": f"ingestion/input/{prefix}/", "size": "0", "updated": "2026-07-01T00:00:00Z"},
+            {
+                "name": f"ingestion/input/{prefix}/x.csv",
+                "size": "5",
+                "updated": "2026-08-01T00:00:00Z",
+            },
+        ]
+    )
+
+
+def test_matches_a_namespaced_provenance_by_its_last_segment():
+    # Seen live: folders are named `ilo`, `iom-dtm`; provenances `UNDATA/P/ILO`,
+    # `UNDATA/P/IOM_DTM`. Case, `-` versus `_`, and a namespace path all differ.
+    session = FakeSession(
+        {
+            "prefix=ingestion/input/ilo/": _one_file("ilo"),
+            "prefix=ingestion/input/iom-dtm/": _one_file("iom-dtm"),
+        }
+    )
+    rows = [
+        {"provenance": "UNDATA/P/ILO", "RowCount": 977399},
+        {"provenance": "UNDATA/P/IOM_DTM", "RowCount": 26},
+        {"provenance": "UNDATA/P/WHO", "RowCount": 5},
+    ]
+    probe = probe_data_sources(_ctx(session, rows, prefixes=("ilo", "iom-dtm")))
+    assert [s["rows"] for s in probe.data["sources"]] == [977399, 26]
+    assert probe.data["unmatched_provenances"] == [{"provenance": "UNDATA/P/WHO", "rows": 5}]
+
+
+def test_folder_placeholder_objects_are_not_counted_as_files():
+    session = FakeSession({"prefix=ingestion/input/ilo/": _one_file("ilo")})
+    probe = probe_data_sources(_ctx(session, [], prefixes=("ilo",)))
+    assert probe.data["sources"][0]["files"] == 1
+    assert probe.data["sources"][0]["bytes"] == 5
