@@ -37,7 +37,7 @@ def test_prints_the_document_as_json(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli, "build_clients", lambda _config: object())
     monkeypatch.setattr(
         cli,
-        "collect_self",
+        "collect_status",
         lambda config, clients, cache: {
             "overall": HEALTHY,
             "environments": [{"id": config.env_id}],

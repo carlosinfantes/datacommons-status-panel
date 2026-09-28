@@ -21,7 +21,7 @@ import json
 import os
 import sys
 
-from .assemble import collect_self
+from .assemble import collect_status
 from .cache import TTLCache
 from .clients import build_clients
 from .config import ConfigError, load_config, load_env_file
@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
 
     clients = build_clients(config)
     cache = TTLCache()
-    document = collect_self(config, clients, cache)
+    document = collect_status(config, clients, cache)
     print(json.dumps(document, indent=args.indent, sort_keys=True))
     return 0
 

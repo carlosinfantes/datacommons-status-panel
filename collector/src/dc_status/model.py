@@ -27,6 +27,19 @@ DEGRADED = "degraded"
 DOWN = "down"
 UNKNOWN = "unknown"
 
+# The four questions an operator asks, in the order they ask them (D4). The
+# order here is the order of the document and of the page; every probe belongs
+# to exactly one dimension.
+DIMENSIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("system", ("dc_api", "dc_service", "spanner", "schema", "version_consistency", "frontend")),
+    ("experience", ("errors", "latency", "saturation")),
+    ("quality", ("counts", "data_sources", "import_status", "row_drift")),
+    ("freshness", ("ingestions", "ingestion_lock", "pending_uploads")),
+)
+DIMENSION_OF: dict[str, str] = {
+    probe_id: dimension for dimension, probe_ids in DIMENSIONS for probe_id in probe_ids
+}
+
 # `unknown` ranks with `degraded` on purpose: not knowing is not being down.
 _RANK = {HEALTHY: 0, DEGRADED: 1, UNKNOWN: 1, DOWN: 2}
 _LABEL_BY_RANK = {0: HEALTHY, 1: DEGRADED, 2: DOWN}
@@ -75,14 +88,25 @@ class Probe:
     # version_consistency does no I/O, so it has no budget to report.
     budget_ms: int = 0
     data: dict = field(default_factory=dict)
+    # The most specific Cloud Console page for the thing checked. A probe sets it
+    # only when the right page depends on what it found (saturation); otherwise
+    # the collector fills in the probe's default page, so even a probe that
+    # raised still links somewhere useful.
+    console_url: str | None = None
+
+    @property
+    def dimension(self) -> str | None:
+        return DIMENSION_OF.get(self.id)
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
+            "dimension": self.dimension,
             "status": self.status,
             "detail": sanitize(self.detail),
             "elapsed_ms": self.elapsed_ms,
             "budget_ms": self.budget_ms,
+            "console_url": self.console_url,
             "data": self.data,
         }
 

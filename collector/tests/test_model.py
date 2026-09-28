@@ -36,6 +36,23 @@ def test_probe_serializes_with_a_sanitized_detail():
     assert payload["data"] == {}
 
 
+def test_probe_serializes_its_dimension_and_console_link_in_document_order():
+    probe = Probe(id="errors", status=HEALTHY, console_url="https://console.cloud.google.com/x")
+    payload = probe.to_dict()
+    assert list(payload) == [
+        "id",
+        "dimension",
+        "status",
+        "detail",
+        "elapsed_ms",
+        "budget_ms",
+        "console_url",
+        "data",
+    ]
+    assert payload["dimension"] == "experience"
+    assert payload["console_url"] == "https://console.cloud.google.com/x"
+
+
 def test_worst_of_all_healthy_is_healthy():
     assert worst([HEALTHY, HEALTHY]) == HEALTHY
 

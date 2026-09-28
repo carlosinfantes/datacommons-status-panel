@@ -20,7 +20,7 @@ import json
 import os
 from importlib.resources import files
 
-from .assemble import collect_self
+from .assemble import collect_status
 from .auth import Denied, authorize
 from .cache import TTLCache
 from .config import load_auth_config, load_config
@@ -51,7 +51,7 @@ def create_app(
     config=None,
     clients=None,
     cache=None,
-    collect_self_fn=collect_self,
+    collect_status_fn=collect_status,
     replay: str | None = None,
     *,
     auth,
@@ -67,7 +67,7 @@ def create_app(
                 with open(replay, encoding="utf-8") as handle:
                     document = json.load(handle)
             else:
-                document = collect_self_fn(config, clients, cache)
+                document = collect_status_fn(config, clients, cache)
         except Exception as exc:
             document = {**_UNAVAILABLE, "detail": sanitize(exc)}
         return document, bool(document.get("partial"))

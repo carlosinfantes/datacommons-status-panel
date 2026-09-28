@@ -71,7 +71,7 @@ def _app(document=None, replay=None, auth=None, verifier=None):
     return create_app(
         config=_config(),
         clients=object(),
-        collect_self_fn=lambda *a, **k: document,
+        collect_status_fn=lambda *a, **k: document,
         replay=replay,
         auth=auth or _ungated(),
         verifier=verifier,
@@ -109,7 +109,7 @@ def test_a_collector_failure_still_answers_200():
     app = create_app(
         config=_config(),
         clients=object(),
-        collect_self_fn=boom,
+        collect_status_fn=boom,
         auth=_ungated(),
     )
     captured, body = _call(app, "/api/v1/self")
@@ -184,7 +184,7 @@ def test_replay_short_circuits_the_collector(tmp_path):
     app = create_app(
         config=_config(),
         clients=object(),
-        collect_self_fn=boom,
+        collect_status_fn=boom,
         replay=str(replay_file),
         auth=_ungated(),
     )

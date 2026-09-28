@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run the probes in parallel and shape the document the page consumes."""
+"""Run the probes in parallel and shape the document the page consumes.
+
+The document is schema version 2: one deployment, four dimensions.
+"""
 
 from __future__ import annotations
 
@@ -20,11 +23,12 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
 from .config import EnvConfig
-from .model import UNKNOWN, Probe, ProbeContext, worst
+from .console import console_url
+from .model import DIMENSION_OF, DIMENSIONS, UNKNOWN, Probe, ProbeContext, worst
 from .probes import (
     COUNTS_BUDGET_SECONDS,
     probe_counts,
@@ -41,6 +45,9 @@ from .probes import (
 from .rest import PUBLIC_TIMEOUT_SECONDS
 from .sanitize import sanitize
 
+SCHEMA_VERSION = 2
+
+# One clock for the whole collection, not one per probe.
 _PROBE_DEADLINE_SECONDS = 25.0
 
 
@@ -135,19 +142,12 @@ def _run_one(spec: ProbeSpec, ctx: ProbeContext, config: EnvConfig, cache) -> Pr
                 budget_ms=_budget_ms(spec),
             )
         elapsed = int((time.monotonic() - started) * 1000)
-        return Probe(
-            id=probe.id,
-            status=probe.status,
-            detail=probe.detail,
-            elapsed_ms=elapsed,
-            budget_ms=_budget_ms(spec),
-            data=probe.data,
-        )
+        return replace(probe, elapsed_ms=elapsed, budget_ms=_budget_ms(spec))
 
     return cache.get_or_call(f"{config.env_id}:{spec.id}", _ttl_for(spec, config), produce)
 
 
-def collect_self(
+def collect_status(
     config: EnvConfig,
     clients: Clients,
     cache,
@@ -155,15 +155,42 @@ def collect_self(
     now: datetime | None = None,
     probes: tuple[ProbeSpec, ...] = PROBES,
 ) -> dict:
+    """Run one collection and return the schema-version-2 document."""
     ctx = _context(config, clients)
+    results = _run_all(probes, ctx, config, cache)
+
+    # Only derive version_consistency when both halves of the pair were actually
+    # requested. In production PROBES always includes both dc_service and schema,
+    # so this is never false there — even if one of them raised, its Probe (with
+    # UNKNOWN status) is still present in `results`. This guard exists for callers
+    # that pass a reduced `probes` tuple containing neither: fabricating a phantom
+    # UNKNOWN card in that case would misrepresent a probe that was never asked
+    # for as one that ran and failed.
+    if "dc_service" in results and "schema" in results:
+        results["version_consistency"] = probe_version_consistency(
+            results["dc_service"], results["schema"]
+        )
+
+    return _document(config, _with_console_links(results, config), signals=None, now=now)
+
+
+def _run_all(probes, ctx: ProbeContext, config: EnvConfig, cache) -> dict[str, Probe]:
+    """Run every probe in parallel against ONE deadline for the whole collection.
+
+    Each future waits only for what is left of the shared clock. Granting every
+    future its own full timeout, as v0 did, let N stuck probes hold the page for
+    N deadlines.
+    """
     results: dict[str, Probe] = {}
     spec_by_id = {spec.id: spec for spec in probes}
+    deadline = time.monotonic() + _PROBE_DEADLINE_SECONDS
     pool = ThreadPoolExecutor(max_workers=max(1, len(probes)))
     try:
         futures = {spec.id: pool.submit(_run_one, spec, ctx, config, cache) for spec in probes}
         for probe_id, future in futures.items():
+            remaining = max(0.0, deadline - time.monotonic())
             try:
-                results[probe_id] = future.result(timeout=_PROBE_DEADLINE_SECONDS)
+                results[probe_id] = future.result(timeout=remaining)
             except FuturesTimeout:
                 # It did not merely fail, it used every millisecond it was given and
                 # was dropped. Recording elapsed as the full budget is the honest
@@ -173,8 +200,8 @@ def collect_self(
                     id=probe_id,
                     status=UNKNOWN,
                     detail=f"the check did not answer within {_PROBE_DEADLINE_SECONDS:g} s",
-                    # The pool's clock is what dropped it, whatever its own inner
-                    # limit was, so that is the budget it actually spent.
+                    # The collection's clock is what dropped it, whatever its own
+                    # inner limit was, so that is the budget it actually spent.
                     elapsed_ms=_budget_ms(),
                     budget_ms=_budget_ms(),
                 )
@@ -191,48 +218,82 @@ def collect_self(
         # up on. The counts probe deliberately leaves stragglers behind, so a
         # `with` here would hand the page back only after they finished.
         pool.shutdown(wait=False, cancel_futures=True)
-
-    # Only derive version_consistency when both halves of the pair were actually
-    # requested. In production PROBES always includes both dc_service and schema,
-    # so this is never false there — even if one of them raised, its Probe (with
-    # UNKNOWN status) is still present in `results`. This guard exists for callers
-    # that pass a reduced `probes` tuple containing neither: fabricating a phantom
-    # UNKNOWN card in that case would misrepresent a probe that was never asked
-    # for as one that ran and failed.
-    if "dc_service" in results and "schema" in results:
-        results["version_consistency"] = probe_version_consistency(
-            results["dc_service"], results["schema"]
-        )
-
-    ordered = [results[key] for key in sorted(results)]
-    environment = _environment_document(config, ordered)
-    partial = any(probe.status == UNKNOWN for probe in ordered)
-    return _wrap([environment], now=now, partial=partial)
+    return results
 
 
-def _environment_document(config: EnvConfig, probes: list[Probe]) -> dict:
-    data_of = {probe.id: (probe.data or {}) for probe in probes}
+def _with_console_links(results: dict[str, Probe], config: EnvConfig) -> dict[str, Probe]:
+    # Filled in here rather than inside each probe so a probe that raised or
+    # timed out still links to the page that would explain why.
     return {
-        "id": config.env_id,
-        "label": config.env_label,
-        "self": True,
-        "reachable": True,
-        "overall": worst(probe.status for probe in probes),
-        "dcp_version": data_of.get("dc_service", {}).get("dcp_version"),
-        "schema_tables": data_of.get("schema", {}).get("tables", []),
-        "counts": data_of.get("counts", {}).get("counts", {}),
-        "ingestions": data_of.get("ingestions", {}).get("ingestions", []),
-        "data_sources": data_of.get("data_sources", {}).get("sources", []),
-        "unmatched_provenances": data_of.get("data_sources", {}).get("unmatched_provenances", []),
-        "probes": [probe.to_dict() for probe in probes],
+        probe_id: probe
+        if probe.console_url or probe_id not in DIMENSION_OF
+        else replace(probe, console_url=console_url(probe_id, config))
+        for probe_id, probe in results.items()
     }
 
 
-def _wrap(environments: list[dict], *, now: datetime | None, partial: bool) -> dict:
-    stamp = (now or datetime.now(UTC)).isoformat()
+def _dimension_status(statuses: list[str]) -> str:
+    """The worst of a dimension's probes, except that all-unknown stays unknown.
+
+    `worst` ranks unknown with degraded, which is right for a verdict. For a
+    tile it would turn "nothing here could be read" into "something here is
+    wrong", which is a different finding.
+    """
+    if statuses and all(status == UNKNOWN for status in statuses):
+        return UNKNOWN
+    return worst(statuses)
+
+
+def _document(
+    config: EnvConfig, results: dict[str, Probe], *, signals: dict | None, now: datetime | None
+) -> dict:
+    dimensions = []
+    ordered: list[Probe] = []
+    for dimension, probe_ids in DIMENSIONS:
+        present = [results[probe_id] for probe_id in probe_ids if probe_id in results]
+        ordered.extend(present)
+        dimensions.append(
+            {
+                "id": dimension,
+                "status": _dimension_status([probe.status for probe in present]),
+                "probes": list(probe_ids),
+            }
+        )
+
+    data_of = {probe.id: (probe.data or {}) for probe in ordered}
+    ingestions = data_of.get("ingestions", {})
+    lock = data_of.get("ingestion_lock", {}).get("lock") or {
+        "held": None,
+        "owner": None,
+        "since": None,
+    }
+    stamp = (now or datetime.now(UTC)).replace(microsecond=0)
     return {
-        "generated_at": stamp,
-        "overall": worst(environment.get("overall", UNKNOWN) for environment in environments),
-        "partial": partial,
-        "environments": environments,
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": stamp.isoformat().replace("+00:00", "Z"),
+        "partial": any(probe.status == UNKNOWN for probe in ordered),
+        "overall": worst(dimension["status"] for dimension in dimensions),
+        "deployment": {
+            "id": config.env_id,
+            "label": config.env_label,
+            "dcp_version": data_of.get("dc_service", {}).get("dcp_version"),
+            "project_id": config.project_id,
+            "region": config.region,
+        },
+        "targets": config.targets.to_dict(),
+        "dimensions": dimensions,
+        "probes": [probe.to_dict() for probe in ordered],
+        "signals": signals,
+        "counts": data_of.get("counts", {}).get("counts", {}),
+        "count_history": ingestions.get("count_history", []),
+        "imports": data_of.get("import_status", {}).get("imports"),
+        "ingestions": ingestions.get("ingestions", []),
+        "freshness": {
+            "last_success_at": ingestions.get("last_success_at"),
+            "age_hours": ingestions.get("age_hours"),
+            "pending_uploads": data_of.get("pending_uploads", {}).get("pending", []),
+            "lock": lock,
+        },
+        "data_sources": data_of.get("data_sources", {}).get("sources", []),
+        "unmatched_provenances": data_of.get("data_sources", {}).get("unmatched_provenances", []),
     }
