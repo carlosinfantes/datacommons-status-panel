@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A README for the Terraform module.
+- Stable releases copy the module to
+  `terraform-google-datacommons-status-panel`, the repository layout the
+  Terraform Registry requires. Release candidates are not copied.
+
 ## [1.0.0-rc.8] - 2026-09-28
 
 ### Fixed

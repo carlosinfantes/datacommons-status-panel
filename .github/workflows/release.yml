@@ -79,3 +79,42 @@ jobs:
             Image: `${{ env.IMAGE }}:${{ steps.meta.outputs.version }}@${{ steps.build.outputs.digest }}`
 
             Verify: `cosign verify ${{ env.IMAGE }}@${{ steps.build.outputs.digest }} --certificate-identity-regexp 'https://github.com/${{ github.repository }}/' --certificate-oidc-issuer https://token.actions.githubusercontent.com`
+
+  # The Terraform Registry only lists a module that sits at the root of a repo
+  # named terraform-<provider>-<name>. A stable tag copies the module into that
+  # mirror and tags it the same; release candidates stay out of the registry.
+  # Without the deploy key the job does nothing, so forks do not fail.
+  terraform-mirror:
+    if: ${{ !contains(github.ref_name, '-') }}
+    needs: image
+    runs-on: ubuntu-latest
+    env:
+      MIRROR: ${{ github.repository_owner }}/terraform-google-datacommons-status-panel
+      MODULE: infra/dcp/modules/status_panel
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - env:
+          DEPLOY_KEY: ${{ secrets.TF_MIRROR_DEPLOY_KEY }}
+        run: |
+          if [ -z "$DEPLOY_KEY" ]; then
+            echo "TF_MIRROR_DEPLOY_KEY is not set; skipping the registry mirror." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          key="$RUNNER_TEMP/mirror_key"
+          printf '%s\n' "$DEPLOY_KEY" > "$key"
+          chmod 600 "$key"
+          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+
+          git clone "git@github.com:${MIRROR}.git" "$RUNNER_TEMP/mirror"
+          cd "$RUNNER_TEMP/mirror"
+          git rm -rq --ignore-unmatch .
+          cp -R "$GITHUB_WORKSPACE/$MODULE/." .
+          cp "$GITHUB_WORKSPACE/LICENSE" .
+          git add -A
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit --allow-empty -m "${GITHUB_REF_NAME}" \
+              -m "From ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/tree/${GITHUB_SHA}/${MODULE}"
+          git tag "$GITHUB_REF_NAME"
+          git push origin HEAD:refs/heads/main "refs/tags/${GITHUB_REF_NAME}"
+          echo "Module published to ${MIRROR} as ${GITHUB_REF_NAME}." >> "$GITHUB_STEP_SUMMARY"
