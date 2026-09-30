@@ -19,6 +19,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 _PREFIX = "DCS_"
 
@@ -242,7 +243,7 @@ def load_targets(environ: Mapping[str, str]) -> Targets:
     would otherwise surface as a panel that is quietly always green.
     """
     defaults = Targets()
-    values: dict[str, float | None] = {}
+    values: dict[str, Any] = {}
     for field_name, key, kind in _TARGET_FIELDS:
         raw = _value(environ, key)
         if not raw:

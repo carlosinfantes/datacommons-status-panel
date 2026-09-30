@@ -53,7 +53,9 @@ def _shift(node, delta: timedelta):
         return [_shift(item, delta) for item in node]
     if isinstance(node, str):
         match = _TIMESTAMP.match(node)
-        parsed = parse_timestamp(node) if match else None
+        if match is None:
+            return node
+        parsed = parse_timestamp(node)
         if parsed is None:
             return node
         moved = parsed + delta

@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests for the page, run with `node --test` and no dependency.
 - The module gives the service a liveness probe on `/healthz`, so an instance
   that stops answering is restarted.
+- CI type-checks the collector with mypy.
 - CI starts the built image against the example document, open and with the
   gate closed, and scans it for high-severity vulnerabilities that have a fix.
 

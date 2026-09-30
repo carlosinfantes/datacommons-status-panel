@@ -149,8 +149,10 @@ def create_app(
         if path.startswith("/static/"):
             name = path[len("/static/") :]
             if name in _ASSETS:  # an allowlist, so traversal has nothing to reach
-                extra = {"Cache-Control": "public, max-age=604800"} if name in _IMMUTABLE else None
-                return respond("200 OK", _ASSETS[name], _asset(name), extra)
+                caching = (
+                    {"Cache-Control": "public, max-age=604800"} if name in _IMMUTABLE else None
+                )
+                return respond("200 OK", _ASSETS[name], _asset(name), caching)
 
         return respond("404 Not Found", _JSON, json.dumps({"error": "not found"}).encode())
 

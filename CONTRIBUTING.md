@@ -12,6 +12,7 @@ cd collector
 uv sync
 uv run ruff check .
 uv run ruff format --check .
+uv run mypy
 uv run pytest
 node --test tests/web/app.test.js
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from typing import Any
 
 from .sanitize import sanitize
 
@@ -161,11 +162,12 @@ class ProbeContext:
     frontend_url: str
     data_source_prefixes: tuple[str, ...]
     input_prefix: str
-    rest: object
-    public: object
-    spanner_factory: object  # callable() -> SpannerSQL
+    # The clients are duck-typed: the real ones in clients.py, fakes in tests.
+    rest: Any
+    public: Any
+    spanner_factory: Any  # callable() -> SpannerSQL
     canary_node: str = "country/GTM"
     canary_name: str = "Guatemala"
-    targets: object = None  # config.Targets; None in tests that do not judge
-    monitoring: object = None  # monitoring.MonitoringReader
+    targets: Any = None  # config.Targets; None in tests that do not judge
+    monitoring: Any = None  # monitoring.MonitoringReader
     signals_window_minutes: int = 60

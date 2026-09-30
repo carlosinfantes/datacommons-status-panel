@@ -26,6 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from typing import Any
 
 from .build import build_info
 from .config import EnvConfig
@@ -81,10 +82,10 @@ class ProbeSpec:
 
 @dataclass(frozen=True)
 class Clients:
-    rest: object
-    public: object
-    spanner_factory: object
-    monitoring: object = None  # monitoring.MonitoringReader
+    rest: Any
+    public: Any
+    spanner_factory: Any
+    monitoring: Any = None  # monitoring.MonitoringReader
 
 
 def _fetch_signals(ctx: ProbeContext) -> Probe:
@@ -243,7 +244,7 @@ def _derive_experience(results: dict[str, Probe], config: EnvConfig) -> dict | N
     than an honest gap.
     """
     fetched = results.pop("signals")
-    timing = {"elapsed_ms": fetched.elapsed_ms, "budget_ms": fetched.budget_ms}
+    timing: dict[str, Any] = {"elapsed_ms": fetched.elapsed_ms, "budget_ms": fetched.budget_ms}
     raw = (fetched.data or {}).get("raw")
     if fetched.status == UNKNOWN or raw is None:
         detail = f"Cloud Monitoring could not be read: {fetched.detail}"
@@ -340,7 +341,7 @@ def _dimension_status(statuses: list[str]) -> str:
 def _document(
     config: EnvConfig, results: dict[str, Probe], *, signals: dict | None, now: datetime | None
 ) -> dict:
-    dimensions = []
+    dimensions: list[dict[str, Any]] = []
     ordered: list[Probe] = []
     for dimension, probe_ids in DIMENSIONS:
         present = [results[probe_id] for probe_id in probe_ids if probe_id in results]

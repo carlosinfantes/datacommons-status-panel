@@ -114,7 +114,7 @@ def _max_instances(service: dict) -> int | None:
 
 
 def _live_image(ctx: ProbeContext, service: dict, revision: str) -> str | None:
-    containers = []
+    containers: list[dict] = []
     if revision:
         try:
             containers = ctx.rest.get(f"{_RUN}/{revision}").get("containers") or []
@@ -826,7 +826,7 @@ def probe_data_sources(ctx, *, max_pages: int = 5) -> Probe:
         hits = [p for p in by_provenance if _source_key(p) == key]
         matched.update(hits)
         counts = [by_provenance[p] for p in hits if isinstance(by_provenance[p], int)]
-        updates = [item.get("updated") for item in items if item.get("updated")]
+        updates: list[str] = [item["updated"] for item in items if item.get("updated")]
         sources.append(
             {
                 "prefix": prefix,
