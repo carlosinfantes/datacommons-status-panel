@@ -242,8 +242,8 @@ off, an over-broad invoker binding, a copy of the service stood up by hand.
 Anything else gets `403 {"error": "forbidden"}`. The reason goes to the logs,
 never to the caller, so a probe cannot learn how close it got.
 
-`/healthz` stays open because Cloud Run's startup probe does not traverse IAP,
-and it says nothing beyond "the process is up".
+`/healthz` stays open because Cloud Run's startup and liveness probes do not
+traverse IAP, and it says nothing beyond "the process is up".
 
 Authorisation is deliberately not re-implemented in the collector. Once an
 assertion verifies, IAP has already decided that the caller holds

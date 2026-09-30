@@ -46,6 +46,11 @@ run "defaults_plan" {
     condition     = output.ghcr_remote_image == null
     error_message = "No GHCR remote is created unless asked for."
   }
+
+  assert {
+    condition     = google_cloud_run_v2_service.status.template[0].containers[0].liveness_probe[0].http_get[0].path == "/healthz"
+    error_message = "A running instance is watched through /healthz, not only a starting one."
+  }
 }
 
 run "partial_targets_keep_the_other_defaults" {

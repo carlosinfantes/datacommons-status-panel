@@ -240,6 +240,18 @@ resource "google_cloud_run_v2_service" "status" {
         period_seconds        = 5
         failure_threshold     = 6
       }
+
+      # The startup probe stops watching once the container is up. This one
+      # keeps asking, so an instance that stops answering is restarted instead
+      # of being handed requests until someone notices.
+      liveness_probe {
+        http_get {
+          path = "/healthz"
+        }
+        period_seconds    = 30
+        timeout_seconds   = 5
+        failure_threshold = 3
+      }
     }
   }
 

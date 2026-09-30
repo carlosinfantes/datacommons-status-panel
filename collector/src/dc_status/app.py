@@ -106,8 +106,8 @@ def create_app(
             start_response(status, headers)
             return [body]
 
-        # /healthz sits above the gate: Cloud Run's startup probe does not
-        # traverse IAP, and the route says nothing beyond "the process is up".
+        # /healthz sits above the gate: Cloud Run's startup and liveness probes
+        # do not traverse IAP, and the route says nothing beyond "the process is up".
         if path == "/healthz":
             return respond("200 OK", _JSON, json.dumps({"status": "ok"}).encode())
 
