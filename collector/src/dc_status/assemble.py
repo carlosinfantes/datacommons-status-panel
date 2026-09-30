@@ -175,7 +175,15 @@ def _run_one(spec: ProbeSpec, ctx: ProbeContext, config: EnvConfig, cache) -> Pr
         elapsed = int((time.monotonic() - started) * 1000)
         return replace(probe, elapsed_ms=elapsed, budget_ms=_budget_ms(spec))
 
-    return cache.get_or_call(f"{config.env_id}:{spec.id}", _ttl_for(spec, config), produce)
+    # Not knowing is never cached. A probe that could not read is asked again by
+    # the next collection; held for its TTL, one blip in Spanner would leave the
+    # schema unknown for an hour, with Refresh unable to clear it.
+    return cache.get_or_call(
+        f"{config.env_id}:{spec.id}",
+        _ttl_for(spec, config),
+        produce,
+        keep=lambda probe: probe.status != UNKNOWN,
+    )
 
 
 def collect_status(

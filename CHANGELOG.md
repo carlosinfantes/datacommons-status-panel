@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `terraform-google-datacommons-status-panel`, the repository layout the
   Terraform Registry requires. Release candidates are not copied.
 
+### Fixed
+
+- A probe that could not read was cached for its whole TTL: one failed schema
+  read left `schema` and `version_consistency` unknown for an hour, and Refresh
+  could not clear it. An unknown result is no longer cached.
+
 ## [1.0.0-rc.8] - 2026-09-28
 
 ### Fixed

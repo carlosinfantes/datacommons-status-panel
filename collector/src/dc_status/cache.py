@@ -112,14 +112,16 @@ class TTLCache:
         self._lock = threading.Lock()
         self._entries: dict[str, tuple[float, object]] = {}
 
-    def get_or_call(self, key: str, ttl: float, producer):
+    def get_or_call(self, key: str, ttl: float, producer, *, keep=None):
+        """`keep` decides whether a produced value is worth storing. A value it
+        turns down is still returned, and the next call produces again."""
         if ttl > 0:
             with self._lock:
                 entry = self._entries.get(key)
                 if entry and self._clock() < entry[0]:
                     return entry[1]
         value = producer()  # produced outside the lock: probes are slow
-        if ttl > 0:
+        if ttl > 0 and (keep is None or keep(value)):
             with self._lock:
                 self._entries[key] = (self._clock() + ttl, value)
         return value

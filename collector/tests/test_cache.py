@@ -89,6 +89,21 @@ def test_a_failing_producer_does_not_poison_the_entry():
     assert cache.get_or_call("k", 300, flaky) == "ok"
 
 
+def test_a_value_keep_turns_down_is_returned_but_not_stored():
+    cache = TTLCache(clock=FakeClock())
+    values = iter(["bad", "good", "never"])
+
+    def producer():
+        return next(values)
+
+    def keep(value):
+        return value != "bad"
+
+    assert cache.get_or_call("k", 300, producer, keep=keep) == "bad"
+    assert cache.get_or_call("k", 300, producer, keep=keep) == "good"
+    assert cache.get_or_call("k", 300, producer, keep=keep) == "good"
+
+
 class Counter:
     def __init__(self):
         self.calls = 0

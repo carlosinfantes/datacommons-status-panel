@@ -242,6 +242,30 @@ def test_cached_probes_are_not_rerun_within_their_ttl():
     assert len(calls) == 1
 
 
+def test_a_probe_that_could_not_read_is_asked_again_despite_its_ttl():
+    # Both ways of not knowing: raising, and returning unknown.
+    calls = []
+
+    def run(_ctx):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("a blip")
+        if len(calls) == 2:
+            return Probe(id="schema", status=UNKNOWN, detail="still not readable")
+        return Probe(id="schema", status=HEALTHY, data={"tables": ["Node"]})
+
+    probes = (ProbeSpec(id="schema", run=run, ttl_seconds=3600),)
+    cache = TTLCache()
+    statuses = [
+        _probe(collect_status(_config(), _clients(), cache, now=NOW, probes=probes), "schema")[
+            "status"
+        ]
+        for _ in range(4)
+    ]
+    assert statuses == [UNKNOWN, UNKNOWN, HEALTHY, HEALTHY]
+    assert len(calls) == 3
+
+
 def test_every_probe_reports_the_budget_it_was_measured_against():
     document = _collect((_spec("dc_api", HEALTHY), _spec("spanner", HEALTHY)))
     assert [probe["budget_ms"] for probe in document["probes"]] == [25000, 25000]
