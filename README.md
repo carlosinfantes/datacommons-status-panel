@@ -5,7 +5,9 @@
 
 A single page, deployed next to a [Data Commons Platform](https://datacommons.org)
 (DCP) instance, that tells its operator whether the deployment is up, serving
-users well, holding complete data and holding current data.
+users well, holding complete data and holding current data. It is for teams
+running their own [custom Data Commons](https://docs.datacommons.org/custom_dc/)
+on Google Cloud.
 
 | Light | Dark |
 |---|---|
