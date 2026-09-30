@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stable releases copy the module to
   `terraform-google-datacommons-status-panel`, the repository layout the
   Terraform Registry requires. Release candidates are not copied.
+- Probe failures and failed collections are logged, sanitized, so they can be
+  read after the request that saw them.
 
 ### Fixed
 

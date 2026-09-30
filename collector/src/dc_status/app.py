@@ -17,7 +17,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import traceback
 from importlib.resources import files
 from urllib.parse import parse_qs
 
@@ -39,6 +41,8 @@ _ASSETS = {
 # they can be cached hard. The page's own CSS and JS deliberately are not.
 _IMMUTABLE = frozenset({"fonts/plex-sans-var.woff2", "fonts/plex-mono-400.woff2"})
 _JSON = "application/json; charset=utf-8"
+
+_LOG = logging.getLogger(__name__)
 
 # On every response, the refusal and the 404 included. The page loads only
 # same-origin files and runs no inline script, so default-src 'self' costs it
@@ -125,7 +129,14 @@ def create_app(
             except Exception as exc:
                 # A probe failing is a finding and still answers 200 inside the
                 # document. Reaching here means there is no document at all, so
-                # say so with a 5xx; the page shows `detail`.
+                # say so with a 5xx; the page shows `detail`. The frames are
+                # logged without the message, which is logged sanitized.
+                _LOG.error(
+                    "collection failed: %s: %s\n%s",
+                    type(exc).__name__,
+                    sanitize(exc),
+                    "".join(traceback.format_tb(exc.__traceback__)).rstrip(),
+                )
                 body = {"error": "unavailable", "detail": sanitize(exc)}
                 return respond("500 Internal Server Error", _JSON, json.dumps(body).encode(), extra)
             if document.get("partial"):

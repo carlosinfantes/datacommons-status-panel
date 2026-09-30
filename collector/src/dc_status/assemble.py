@@ -19,6 +19,7 @@ The document is schema version 2: one deployment, four dimensions.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -57,6 +58,10 @@ SCHEMA_VERSION = 2
 
 # One clock for the whole collection, not one per probe.
 _PROBE_DEADLINE_SECONDS = 25.0
+
+# A failed check is in the document of the request that saw it and nowhere
+# else, so it is logged too: the log is what is left to read afterwards.
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -165,6 +170,7 @@ def _run_one(spec: ProbeSpec, ctx: ProbeContext, config: EnvConfig, cache) -> Pr
         try:
             probe = spec.run(ctx)
         except Exception as exc:
+            _LOG.warning("probe %s failed: %s: %s", spec.id, type(exc).__name__, sanitize(exc))
             return Probe(
                 id=spec.id,
                 status=UNKNOWN,
@@ -275,6 +281,9 @@ def _run_all(probes, ctx: ProbeContext, config: EnvConfig, cache) -> dict[str, P
             try:
                 results[probe_id] = future.result(timeout=remaining)
             except FuturesTimeout:
+                _LOG.warning(
+                    "probe %s did not answer within %g s", probe_id, _PROBE_DEADLINE_SECONDS
+                )
                 # It did not merely fail, it used every millisecond it was given and
                 # was dropped. Recording elapsed as the full budget is the honest
                 # reading; leaving it at zero would report the slowest possible
@@ -289,6 +298,7 @@ def _run_all(probes, ctx: ProbeContext, config: EnvConfig, cache) -> dict[str, P
                     budget_ms=_budget_ms(),
                 )
             except Exception as exc:
+                _LOG.warning("probe %s failed: %s: %s", probe_id, type(exc).__name__, sanitize(exc))
                 results[probe_id] = Probe(
                     id=probe_id,
                     status=UNKNOWN,

@@ -266,6 +266,13 @@ def test_a_probe_that_could_not_read_is_asked_again_despite_its_ttl():
     assert len(calls) == 3
 
 
+def test_a_probe_that_raises_is_logged_sanitized(caplog):
+    with caplog.at_level("WARNING", logger="dc_status.assemble"):
+        _collect((_spec("counts", HEALTHY, boom=True),))
+    assert "probe counts failed: RuntimeError: probe exploded" in caplog.text
+    assert "ya29" not in caplog.text
+
+
 def test_every_probe_reports_the_budget_it_was_measured_against():
     document = _collect((_spec("dc_api", HEALTHY), _spec("spanner", HEALTHY)))
     assert [probe["budget_ms"] for probe in document["probes"]] == [25000, 25000]

@@ -136,6 +136,20 @@ def test_a_collector_failure_answers_500_with_a_sanitized_detail():
     assert captured["headers"]["Cache-Control"] == "no-store"
 
 
+def test_a_collector_failure_is_logged_with_its_frames_and_a_sanitized_message(caplog):
+    message = "no document, Bearer " + "ya29" + ".leaked"
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError(message)
+
+    app = create_app(config=_config(), clients=object(), collect_status_fn=boom, auth=_ungated())
+    with caplog.at_level("ERROR", logger="dc_status.app"):
+        _call(app, "/api/v1/status")
+    assert "collection failed: RuntimeError: no document" in caplog.text
+    assert "in boom" in caplog.text
+    assert "ya29" not in caplog.text
+
+
 def test_root_serves_the_page():
     captured, body = _call(_app(), "/")
     assert captured["status"].startswith("200")
