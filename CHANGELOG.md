@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Terraform Registry requires. Release candidates are not copied.
 - Probe failures and failed collections are logged, sanitized, so they can be
   read after the request that saw them.
+- Tests for the page, run with `node --test` and no dependency.
 
 ### Fixed
 

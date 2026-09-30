@@ -13,6 +13,7 @@ uv sync
 uv run ruff check .
 uv run ruff format --check .
 uv run pytest
+node --test tests/web/app.test.js
 
 cd ../infra/dcp/modules/status_panel
 terraform fmt -check -recursive
