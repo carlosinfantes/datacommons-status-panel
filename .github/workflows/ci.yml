@@ -69,3 +69,34 @@ jobs:
           context: collector
           platforms: linux/amd64
           push: false
+          load: true
+          tags: dc-status:ci
+      # The image the tests never see: start it replaying the example document
+      # and ask it what a browser would. Then once more with the gate closed.
+      - name: Smoke test
+        run: |
+          serve() {
+            docker run -d --name panel -p 8080:8080 \
+              -v "$PWD/collector/tests/fixtures:/fixtures:ro" \
+              -e DCS_REPLAY_FILE=/fixtures/demo.json "$@" dc-status:ci
+            curl -fsS -o /dev/null --retry 15 --retry-delay 1 --retry-all-errors localhost:8080/healthz
+          }
+          code() { curl -s -o /dev/null -w '%{http_code}' "localhost:8080$1"; }
+
+          serve -e DCS_REQUIRE_AUTH=false
+          curl -fsS localhost:8080/api/v1/status | jq -e '.schema_version == 2'
+          test "$(code /)" = 200
+          test "$(code /static/app.js)" = 200
+          docker rm -f panel
+
+          serve -e DCS_IAP_AUDIENCE=/projects/1/locations/r/services/s
+          test "$(code /api/v1/status)" = 403
+          test "$(code /)" = 403
+          docker rm -f panel
+      # Only what a rebuild or a bump can fix fails the build.
+      - uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: dc-status:ci
+          severity-cutoff: high
+          only-fixed: true
+          output-format: table
