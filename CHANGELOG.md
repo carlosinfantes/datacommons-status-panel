@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc.9] - 2026-10-01
+
 ### Added
 
 - A README for the Terraform module.
@@ -24,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- urllib3 moved to 2.8.0, which closes three advisories Dependabot raised
+  against the locked 2.7.0.
 - A probe that could not read was cached for its whole TTL: one failed schema
   read left `schema` and `version_consistency` unknown for an hour, and Refresh
   could not clear it. An unknown result is no longer cached.
@@ -196,7 +200,8 @@ The v1 redesign: one panel per deployment, answering four questions. See the
   frame-ancestors 'none'` and `Referrer-Policy: no-referrer`; `/api/*`
   responses carry `Cache-Control: no-store`.
 
-[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.8...HEAD
+[Unreleased]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.9...HEAD
+[1.0.0-rc.9]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.8...v1.0.0-rc.9
 [1.0.0-rc.8]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.7...v1.0.0-rc.8
 [1.0.0-rc.7]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.6...v1.0.0-rc.7
 [1.0.0-rc.6]: https://github.com/carlosinfantes/datacommons-status-panel/compare/v1.0.0-rc.5...v1.0.0-rc.6
